@@ -1,0 +1,328 @@
+/* ============================================
+   ESPORTSDUNIYA — Dashboard Page
+   ============================================ */
+import { SPORTS } from '../data/mockData.js';
+import { fetchLiveMatches, buildMatchContext, fetchMomentumAnalysis } from '../services/apiService.js';
+import { createMatchCard } from '../components/MatchCard.js';
+import { createMomentumEngine, drawMomentumGraph, animateProbBars, updateMomentumEngine, showMomentumLoading } from '../components/MomentumEngine.js';
+import { createAINarrative, initAINarrative } from '../components/AINarrative.js';
+
+export function createDashboard(gsap) {
+    // Notification state
+    let lastScores = {};
+    let notifications = JSON.parse(localStorage.getItem('esd_notifications') || '[]');
+    // Notification dropdown UI
+    function renderNotificationDropdown() {
+        let dropdown = document.getElementById('notif-dropdown');
+        if (!dropdown) {
+            dropdown = document.createElement('div');
+            dropdown.id = 'notif-dropdown';
+            dropdown.style.cssText = 'position:fixed;top:54px;right:22px;z-index:1200;background:rgba(20,20,30,0.98);color:#fff;border-radius:10px;box-shadow:0 4px 24px #0003;padding:12px 0;min-width:260px;max-width:340px;max-height:60vh;overflow-y:auto;display:none;';
+            document.body.appendChild(dropdown);
+        }
+        dropdown.innerHTML = `<div style='font-weight:700;padding:8px 18px 6px 18px;border-bottom:1px solid #333;'>Notifications</div>` +
+            (notifications.length === 0 ? `<div style='padding:18px;color:#aaa;text-align:center;'>No notifications yet.</div>` :
+                notifications.slice(-10).reverse().map(n => `<div style='padding:10px 18px;border-bottom:1px solid #222;font-size:1em;'><span style='font-weight:600;'>${n.title}</span><br><span style='font-size:0.95em;color:#aaa;'>${n.body}</span><br><span style='font-size:0.8em;color:#666;'>${n.time}</span></div>`).join(''));
+    }
+    // Bell click toggles dropdown
+    setTimeout(() => {
+        const bell = document.getElementById('notif-bell');
+        if (bell) {
+            bell.addEventListener('click', (e) => {
+                e.stopPropagation();
+                renderNotificationDropdown();
+                const dd = document.getElementById('notif-dropdown');
+                if (dd) dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+            });
+            document.addEventListener('click', (e) => {
+                const dd = document.getElementById('notif-dropdown');
+                if (dd && dd.style.display === 'block' && !bell.contains(e.target)) dd.style.display = 'none';
+            });
+        }
+    }, 0);
+    const page = document.createElement('div');
+    page.className = 'page-enter';
+    page.id = 'dashboard-page';
+
+    // Section Header (SEO-rich)
+    const header = document.createElement('div');
+    header.className = 'section-header';
+    header.innerHTML = `
+    <h1><span class="accent-dot" aria-hidden="true"></span>Live Sports Scores</h1>
+    <p>Real-time live scores for Cricket, Football, NBA, Tennis & F1 — powered by AI-driven internet search.</p>
+  `;
+    page.appendChild(header);
+
+    // Sport Filter Tabs
+    const tabs = document.createElement('div');
+    tabs.className = 'sport-tabs';
+    tabs.id = 'sport-tabs';
+    tabs.innerHTML = SPORTS.map((sport, i) => `
+    <button class="sport-tab ${i === 0 ? 'active' : ''}" data-sport="${sport.id}">
+      ${sport.icon} ${sport.label}
+    </button>
+  `).join('');
+    page.appendChild(tabs);
+
+    // Last Updated indicator
+    const lastUpdated = document.createElement('div');
+    lastUpdated.className = 'last-updated';
+    lastUpdated.id = 'last-updated';
+    lastUpdated.innerHTML = '<span class="live-indicator" aria-hidden="true"></span> <span>Connecting to live scores...</span>';
+    page.appendChild(lastUpdated);
+
+    // Loading indicator (skeleton cards)
+    const loader = document.createElement('div');
+    loader.id = 'cards-loader';
+    loader.className = 'cards-grid';
+    loader.innerHTML = Array(6).fill('<div class="skeleton skeleton-card"></div>').join('');
+    page.appendChild(loader);
+
+    // Cards Grid
+    const grid = document.createElement('div');
+    grid.className = 'cards-grid';
+    grid.id = 'cards-grid';
+    grid.style.display = 'none';
+    page.appendChild(grid);
+
+    // Render match cards (now async)
+    async function renderCards(sportFilter) {
+        // Import notification helper
+        const { sendNotification } = await import('../components/NotificationHelper.js');
+        const loaderEl = document.getElementById('cards-loader');
+        const gridEl = document.getElementById('cards-grid');
+
+        if (loaderEl) loaderEl.style.display = 'block';
+        if (gridEl) { gridEl.style.display = 'none'; gridEl.innerHTML = ''; }
+
+        try {
+            // Fetch real or mock data
+            const matches = await fetchLiveMatches(sportFilter);
+
+            // Detect key events (goals, wickets, etc.) and notify
+            matches.forEach(match => {
+            const id = match.id;
+            let key = `${match.sport}_${id}`;
+            let prev = lastScores[key];
+            let currA = match.teamA?.score;
+            let currB = match.teamB?.score;
+            // Only notify if previous exists and score changed
+            if (prev && (currA !== prev.a || currB !== prev.b)) {
+                let diffA = parseInt(currA) - parseInt(prev.a);
+                let diffB = parseInt(currB) - parseInt(prev.b);
+                let event = null;
+                if (diffA > 0) event = `${match.teamA?.name} scored!`;
+                if (diffB > 0) event = `${match.teamB?.name} scored!`;
+                if (event) {
+                    const title = `${event} (${match.league})`;
+                    const body = `${match.teamA?.name} ${currA} - ${currB} ${match.teamB?.name}`;
+                    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    sendNotification(title, { body });
+                    notifications.push({ title, body, time });
+                    if (notifications.length > 20) notifications = notifications.slice(-20);
+                    localStorage.setItem('esd_notifications', JSON.stringify(notifications));
+                    renderNotificationDropdown();
+                }
+            }
+            lastScores[key] = { a: currA, b: currB };
+            });
+
+            // Update "last updated" time
+            const updatedEl = document.getElementById('last-updated');
+            if (updatedEl) {
+            const now = new Date();
+            const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const source = matches.length > 0 && matches[0]?.source === 'ai-search'
+                ? '🔍 AI Search'
+                : (matches.length > 0 && matches[0]?.source === 'demo' ? '🎮 Demo Data' : '📡 API');
+            updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>Last updated: ${time} · ${matches.length} matches · via ${source}</span>`;
+            }
+
+            if (loaderEl) loaderEl.style.display = 'none';
+            if (gridEl) gridEl.style.display = '';
+
+            if (!gridEl) return;
+
+            if (matches.length === 0) {
+            gridEl.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
+          <div style="font-size:var(--text-3xl);margin-bottom:var(--space-4)">🏟️</div>
+          <p>No live matches right now.</p>
+          <p style="font-size:var(--text-sm);margin-top:var(--space-2);margin-bottom:var(--space-6)">The API is connected but returned 0 live games.</p>
+          
+          <button id="load-mock-btn" style="
+            background:rgba(255,255,255,0.1);
+            border:1px solid rgba(255,255,255,0.2);
+            padding:8px 16px;
+            border-radius:20px;
+            color:var(--text-primary);
+            font-size:var(--text-sm);
+            cursor:pointer;
+            transition: all 0.2s ease;
+          " onmouseover="this.style.background='rgba(57,255,20,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+            Show Mock Data (Demo Mode)
+          </button>
+        </div>
+      `;
+
+            // Add click handler for the button
+            setTimeout(() => {
+                const btn = document.getElementById('load-mock-btn');
+                if (btn) {
+                    btn.addEventListener('click', async () => {
+                        const m = await import('../data/mockData.js');
+                        const mock = sportFilter === 'all' ? m.LIVE_MATCHES : m.LIVE_MATCHES.filter(x => x.sport === sportFilter);
+
+                        gridEl.innerHTML = '';
+                        mock.forEach(match => {
+                            const card = createMatchCard(match, (m) => {
+                                // Update the AI narrative context when a card is clicked
+                                const contextStr = buildMatchContext(m);
+                                window.__currentMatchContext = contextStr;
+                                const engineEl = document.getElementById('momentum-engine');
+                                if (engineEl) engineEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                loadMomentumForMatch(contextStr);
+                            });
+                            gridEl.appendChild(card);
+                        });
+
+                        // Default context
+                        if (mock.length > 0) window.__currentMatchContext = buildMatchContext(mock[0]);
+                    });
+                }
+            }, 0);
+            return;
+            }
+
+            matches.forEach(match => {
+            const card = createMatchCard(match, (m) => {
+                // Navigate to match detail page
+                location.hash = `match/${m.id}`;
+            });
+            gridEl.appendChild(card);
+            });
+
+            // Always update match context and load momentum for the first match
+            if (matches.length > 0) {
+            window.__currentMatchContext = buildMatchContext(matches[0]);
+            loadMomentumForMatch(window.__currentMatchContext);
+            }
+
+            // GSAP stagger animation
+            if (gsap && gridEl.children.length > 0) {
+            gsap.fromTo(
+                gridEl.children,
+                { opacity: 0, y: 30, scale: 0.96 },
+                {
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                    duration: 0.5,
+                    stagger: 0.08,
+                    ease: 'power3.out',
+                    clearProps: 'transform',
+                }
+            );
+            }
+        } catch (err) {
+            console.error('Dashboard render failed:', err);
+            if (loaderEl) loaderEl.style.display = 'none';
+            if (gridEl) {
+                gridEl.style.display = '';
+                gridEl.innerHTML = `
+                    <div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
+                        Live scores could not be rendered. Please retry.
+                    </div>
+                `;
+            }
+        }
+    }
+
+    // ── Load real-time momentum data for a match ──
+    async function loadMomentumForMatch(matchContext) {
+        try {
+            showMomentumLoading();
+            console.log('⚡ Fetching real-time momentum analysis...');
+            const data = await fetchMomentumAnalysis(matchContext);
+            updateMomentumEngine(data);
+            console.log(`⚡ Momentum updated: ${data.teamA} ${data.probA}% vs ${data.teamB} ${data.probB}% (source: ${data.source})`);
+        } catch (err) {
+            console.error('⚡ Momentum fetch error:', err);
+            // Fall back to drawing mock data
+            drawMomentumGraph();
+            animateProbBars();
+        }
+    }
+
+    // Initial render
+    renderCards('all');
+
+    // Tab click handler
+    tabs.addEventListener('click', (e) => {
+        const tab = e.target.closest('.sport-tab');
+        if (!tab) return;
+
+        tabs.querySelectorAll('.sport-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        renderCards(tab.dataset.sport);
+    });
+
+    // Momentum Engine
+    const engine = createMomentumEngine();
+    page.appendChild(engine);
+
+    // AI Narrative
+    const narrative = createAINarrative();
+    page.appendChild(narrative);
+    narrative.style.marginTop = 'var(--space-6)';
+
+    // Auto-refresh disabled as per user request
+
+
+    return page;
+}
+
+/**
+ * Called after the dashboard is added to DOM
+ */
+export function initDashboard() {
+    // Don't draw mock data — momentum will be loaded dynamically
+    // by renderCards() which auto-fetches real data for the first match.
+    // Just show loading state until real data arrives.
+    showMomentumLoading();
+    initAINarrative();
+
+    // Simulate live score updates (visual flash effect)
+    // Track intervals for cleanup
+    if (!window.__dashboardIntervals) window.__dashboardIntervals = [];
+    startScoreSimulation();
+}
+
+function startScoreSimulation() {
+    const scoreElements = document.querySelectorAll('.team-score');
+
+    const interval = setInterval(() => {
+        scoreElements.forEach(el => {
+            if (Math.random() > 0.7) {
+                el.style.color = 'var(--accent-neon)';
+                el.style.transform = 'scale(1.15)';
+                el.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+                setTimeout(() => {
+                    el.style.color = '';
+                    el.style.transform = '';
+                }, 800);
+            }
+        });
+    }, 5000);
+    if (window.__dashboardIntervals) {
+        window.__dashboardIntervals.push(interval);
+    }
+}
+
+// Cleanup intervals when dashboard is removed
+window.addEventListener('hashchange', () => {
+    if (!document.getElementById('dashboard-page') && window.__dashboardIntervals) {
+        window.__dashboardIntervals.forEach(clearInterval);
+        window.__dashboardIntervals = [];
+    }
+});

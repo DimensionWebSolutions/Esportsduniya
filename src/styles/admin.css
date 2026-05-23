@@ -1,0 +1,61 @@
+.admin-container {
+  max-width: 480px;
+  margin: 60px auto 0 auto;
+  padding: 32px 28px;
+  background: #181828;
+  border-radius: 18px;
+  box-shadow: 0 4px 24px #0003;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.admin-container h2 {
+  margin-bottom: 18px;
+  font-size: 1.5em;
+  text-align: center;
+}
+.admin-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.admin-form input, .admin-form select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #23233a;
+  color: #fff;
+  font-size: 1em;
+}
+.admin-form button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--accent-cyber, #1e90ff);
+  color: #fff;
+  border: none;
+  font-size: 1em;
+  cursor: pointer;
+}
+.admin-list {
+  list-style: none;
+  padding: 0;
+}
+.admin-list li {
+  background: #23233a;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.admin-list button {
+  background: #ff6b6b;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  margin-left: 12px;
+}

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <script>
+    /* Service worker disabled for development to prevent caching issues
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js');
+      });
+    }
+    */
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Esportsduniya — Live Sports Scores, AI Insights & Sports History</title>
+  <meta name="description"
+    content="Esportsduniya: Your ultimate AI-powered sports platform. Get real-time live scores for Cricket, Football, NBA, Tennis & F1 with predictive analytics, momentum analysis, and an immersive Time Machine to relive legendary sports moments." />
+  <meta name="keywords"
+    content="live sports scores, cricket live score, football live score, NBA scores, tennis scores, F1 results, IPL live score, Premier League scores, Champions League, AI sports analysis, sports predictions, sports history, momentum analysis, esportsduniya" />
+  <meta name="author" content="Esportsduniya" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  <meta name="theme-color" content="#0A0A0F" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Esportsduniya" />
+  <meta name="application-name" content="Esportsduniya" />
+  <meta name="msapplication-TileColor" content="#0A0A0F" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://esportsduniya.com/" />
+  <meta property="og:title" content="Esportsduniya — Live Sports Scores & AI Insights" />
+  <meta property="og:description"
+    content="Real-time live scores for Cricket, Football, NBA, Tennis & F1. AI-powered momentum analysis, predictive insights, and an immersive Time Machine to relive sports history." />
+  <meta property="og:image" content="https://esportsduniya.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Esportsduniya - AI-Powered Live Sports Dashboard" />
+  <meta property="og:site_name" content="Esportsduniya" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content="https://esportsduniya.com/" />
+  <meta name="twitter:title" content="Esportsduniya — Live Sports Scores & AI Insights" />
+  <meta name="twitter:description"
+    content="Real-time live scores for Cricket, Football, NBA, Tennis & F1 with AI-powered analytics." />
+  <meta name="twitter:image" content="https://esportsduniya.com/og-image.png" />
+  <meta name="twitter:image:alt" content="Esportsduniya - AI-Powered Live Sports Dashboard" />
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://esportsduniya.com/" />
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- Fonts (preconnect for speed) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+  <link rel="apple-touch-icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+
+  <!-- Structured Data: WebSite (Google Search) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Esportsduniya",
+    "alternateName": ["eSportsDuniya", "ESportsDuniya"],
+    "url": "https://esportsduniya.com/",
+    "description": "AI-powered live sports platform with real-time scores, predictive analytics, and sports history.",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": {
+        "@type": "EntryPoint",
+        "urlTemplate": "https://esportsduniya.com/?q={search_term_string}"
+      },
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+
+  <!-- Structured Data: SportsOrganization -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Esportsduniya",
+    "url": "https://esportsduniya.com/",
+    "logo": "https://esportsduniya.com/og-image.png",
+    "description": "AI-powered sports platform delivering live scores, momentum analysis, and sports history across Cricket, Football, NBA, Tennis, and Formula 1.",
+    "sameAs": [],
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "customer service",
+      "availableLanguage": "English"
+    }
+  }
+  </script>
+
+  <!-- Structured Data: BreadcrumbList -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://esportsduniya.com/" },
+      { "@type": "ListItem", "position": 2, "name": "Live Scores", "item": "https://esportsduniya.com/#dashboard" },
+      { "@type": "ListItem", "position": 3, "name": "Cricket", "item": "https://esportsduniya.com/#cricket" },
+      { "@type": "ListItem", "position": 4, "name": "Football", "item": "https://esportsduniya.com/#football" },
+      { "@type": "ListItem", "position": 5, "name": "NBA", "item": "https://esportsduniya.com/#nba" },
+      { "@type": "ListItem", "position": 6, "name": "Tennis", "item": "https://esportsduniya.com/#tennis" },
+      { "@type": "ListItem", "position": 7, "name": "F1", "item": "https://esportsduniya.com/#f1" },
+      { "@type": "ListItem", "position": 8, "name": "Time Machine", "item": "https://esportsduniya.com/#timemachine" },
+      { "@type": "ListItem", "position": 9, "name": "Crowd Pulse", "item": "https://esportsduniya.com/#crowdpulse" }
+    ]
+  }
+  </script>
+
+  <!-- Preload critical hero animation feel -->
+  <link rel="stylesheet" href="/src/styles/loader.css" />
+</head>
+
+<body>
+  <div id="app-loader" aria-label="Loading Esportsduniya">
+    <div class="loader-logo">⚡</div>
+    <div class="loader-text">Esportsduniya</div>
+    <div class="loader-bar"><span class="loader-bar-fill"></span></div>
+  </div>
+
+  <div id="app"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>

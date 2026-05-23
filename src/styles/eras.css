@@ -1,0 +1,380 @@
+/* ============================================
+   ESPORTSDUNIYA — Era Styles (Time Machine)
+   ============================================ */
+
+/* ── Timeline Base ── */
+.timeline {
+    position: relative;
+    padding: var(--space-8) 0 var(--space-8) 60px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 24px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(180deg,
+            var(--text-muted) 0%,
+            var(--accent-cyber) 30%,
+            var(--accent-neon) 70%,
+            var(--text-muted) 100%);
+}
+
+.timeline-decade {
+    position: relative;
+    margin-bottom: var(--space-12);
+}
+
+.decade-marker {
+    position: absolute;
+    left: -60px;
+    top: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    z-index: 10;
+    transition: all var(--dur-normal) var(--ease-out);
+}
+
+.decade-label {
+    font-family: var(--font-display);
+    font-size: var(--text-3xl);
+    font-weight: 700;
+    margin-bottom: var(--space-6);
+    opacity: 0.6;
+}
+
+/* ── Event Cards ── */
+.event-card {
+    padding: var(--space-6);
+    margin-bottom: var(--space-6);
+    cursor: pointer;
+    position: relative;
+}
+
+.event-card::after {
+    content: '';
+    position: absolute;
+    left: -48px;
+    top: 24px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid;
+    z-index: 5;
+}
+
+.event-date {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    margin-bottom: var(--space-2);
+}
+
+.event-title {
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    margin-bottom: var(--space-3);
+}
+
+.event-description {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-bottom: var(--space-4);
+}
+
+.event-stats {
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.event-stat {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 500;
+}
+
+/* ── Era: 1920s–1950s (Vintage / Sepia) ── */
+.era-vintage .decade-marker {
+    background: #3E3224;
+    color: #D4B896;
+    border: 2px solid #8B7355;
+}
+
+.era-vintage .decade-label {
+    color: #C4A77D;
+    font-family: 'Georgia', serif;
+}
+
+.era-vintage .event-card {
+    background: rgba(62, 50, 36, 0.3);
+    border: 1px solid rgba(139, 115, 85, 0.3);
+    border-radius: var(--radius-md);
+}
+
+.era-vintage .event-card::after {
+    background: #8B7355;
+    border-color: #C4A77D;
+}
+
+.era-vintage .event-date {
+    color: #C4A77D;
+}
+
+.era-vintage .event-title {
+    color: #E8D5B8;
+    font-family: 'Georgia', serif;
+}
+
+.era-vintage .event-stat {
+    background: rgba(139, 115, 85, 0.2);
+    color: #C4A77D;
+    border: 1px solid rgba(139, 115, 85, 0.3);
+}
+
+/* Film grain overlay for vintage era */
+.era-vintage .event-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.15'/%3E%3C/svg%3E");
+    opacity: 0.3;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+    animation: grain 4s steps(6) infinite;
+}
+
+/* ── Era: 1960s–1980s (Retro / VHS) ── */
+.era-retro .decade-marker {
+    background: #2A1A3E;
+    color: #E0A0FF;
+    border: 2px solid #8B5CF6;
+}
+
+.era-retro .decade-label {
+    color: #C084FC;
+    text-shadow: 2px 2px 0 rgba(139, 92, 246, 0.3);
+}
+
+.era-retro .event-card {
+    background: rgba(42, 26, 62, 0.3);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: var(--radius-md);
+}
+
+.era-retro .event-card::after {
+    background: #8B5CF6;
+    border-color: #C084FC;
+}
+
+.era-retro .event-date {
+    color: #C084FC;
+}
+
+.era-retro .event-title {
+    color: #E8D0FF;
+}
+
+.era-retro .event-stat {
+    background: rgba(139, 92, 246, 0.15);
+    color: #C084FC;
+    border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+/* VHS scanline effect for retro era */
+.era-retro .event-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: repeating-linear-gradient(0deg,
+            transparent,
+            transparent 2px,
+            rgba(139, 92, 246, 0.03) 2px,
+            rgba(139, 92, 246, 0.03) 4px);
+    pointer-events: none;
+}
+
+/* ── Era: 1990s–2010s (Digital / Clean) ── */
+.era-digital .decade-marker {
+    background: var(--bg-surface-2);
+    color: var(--accent-cyber);
+    border: 2px solid var(--accent-cyber);
+}
+
+.era-digital .decade-label {
+    color: var(--accent-cyber);
+}
+
+.era-digital .event-card {
+    background: rgba(0, 212, 255, 0.04);
+    border: 1px solid rgba(0, 212, 255, 0.12);
+    border-radius: var(--radius-lg);
+}
+
+.era-digital .event-card::after {
+    background: var(--accent-cyber);
+    border-color: var(--accent-cyber);
+}
+
+.era-digital .event-date {
+    color: var(--accent-cyber);
+}
+
+.era-digital .event-stat {
+    background: rgba(0, 212, 255, 0.1);
+    color: var(--accent-cyber);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+/* ── Era: 2020s+ (Neon / Modern) ── */
+.era-modern .decade-marker {
+    background: rgba(57, 255, 20, 0.1);
+    color: var(--accent-neon);
+    border: 2px solid var(--accent-neon);
+    box-shadow: var(--shadow-glow-neon);
+}
+
+.era-modern .decade-label {
+    color: var(--accent-neon);
+    text-shadow: 0 0 20px rgba(57, 255, 20, 0.4);
+}
+
+.era-modern .event-card {
+    background: var(--bg-glass);
+    border: 1px solid rgba(57, 255, 20, 0.15);
+    border-radius: var(--radius-xl);
+    backdrop-filter: blur(12px);
+}
+
+.era-modern .event-card:hover {
+    border-color: rgba(57, 255, 20, 0.3);
+    box-shadow: var(--shadow-glow-neon);
+}
+
+.era-modern .event-card::after {
+    background: var(--accent-neon);
+    border-color: var(--accent-neon);
+    box-shadow: 0 0 10px rgba(57, 255, 20, 0.5);
+}
+
+.era-modern .event-date {
+    color: var(--accent-neon);
+}
+
+.era-modern .event-stat {
+    background: rgba(57, 255, 20, 0.08);
+    color: var(--accent-neon);
+    border: 1px solid rgba(57, 255, 20, 0.2);
+}
+
+/* ── Time Machine Header ── */
+.tm-header {
+    text-align: center;
+    padding: var(--space-16) 0 var(--space-12);
+    position: relative;
+}
+
+.tm-header h1 {
+    font-size: var(--text-5xl);
+    background: linear-gradient(135deg, var(--accent-cyber), var(--accent-neon));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: var(--space-4);
+}
+
+.tm-header p {
+    font-size: var(--text-lg);
+    color: var(--text-secondary);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.tm-era-nav {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-10);
+    flex-wrap: wrap;
+}
+
+.era-btn {
+    padding: var(--space-2) var(--space-5);
+    border-radius: var(--radius-full);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    border: 1px solid var(--glass-border);
+    background: var(--bg-glass);
+    color: var(--text-muted);
+    transition: all var(--dur-normal) var(--ease-out);
+}
+
+.era-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--glass-border-h);
+}
+
+.era-btn.active {
+    border-color: var(--accent-cyber);
+    color: var(--accent-cyber);
+    background: rgba(0, 212, 255, 0.1);
+}
+
+/* ── On This Day Badge ── */
+.otd-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    background: rgba(255, 215, 0, 0.1);
+    border: 1px solid rgba(255, 215, 0, 0.25);
+    color: var(--accent-gold);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: var(--space-3);
+}
+
+@media (max-width: 768px) {
+    .timeline {
+        padding-left: 40px;
+    }
+
+    .timeline::before {
+        left: 14px;
+    }
+
+    .decade-marker {
+        left: -40px;
+        width: 28px;
+        height: 28px;
+        font-size: 0.6rem;
+    }
+
+    .event-card::after {
+        left: -34px;
+        width: 8px;
+        height: 8px;
+    }
+
+    .tm-header h1 {
+        font-size: var(--text-3xl);
+    }
+}

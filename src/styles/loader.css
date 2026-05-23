@@ -1,0 +1,76 @@
+/* Critical above-the-fold styles to prevent FOUC */
+body {
+  background: #0A0A0F;
+  color: #F0F0F5;
+}
+
+#app-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0A0A0F;
+  font-family: 'Space Grotesk', sans-serif;
+  transition: opacity 0.5s ease;
+}
+
+#app-loader .loader-logo {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  animation: pulse-load 1.5s ease infinite;
+}
+
+#app-loader .loader-text {
+  color: #39FF14;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+#app-loader .loader-bar {
+  width: 200px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin-top: 1.5rem;
+  overflow: hidden;
+}
+
+#app-loader .loader-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #00D4FF, #39FF14);
+  border-radius: 8px;
+  animation: load-fill 1.8s ease-out forwards;
+}
+
+@keyframes pulse-load {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1
+  }
+
+  50% {
+    transform: scale(1.1);
+    opacity: 0.7
+  }
+}
+
+@keyframes load-fill {
+  0% {
+    width: 0%
+  }
+
+  60% {
+    width: 70%
+  }
+
+  100% {
+    width: 100%
+  }
+}

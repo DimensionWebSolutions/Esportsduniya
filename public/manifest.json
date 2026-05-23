@@ -1,0 +1,46 @@
+{
+  "name": "Esportsduniya — Live Sports Scores & AI Insights",
+  "short_name": "Esportsduniya",
+  "description": "Real-time live scores for Cricket, Football, NBA, Tennis & F1 with AI-powered momentum analysis and sports history.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0F",
+  "theme_color": "#0A0A0F",
+  "orientation": "any",
+  "categories": ["sports", "news", "entertainment"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Live Scores",
+      "short_name": "Live",
+      "description": "View live scores across all sports",
+      "url": "/#dashboard",
+      "icons": [{ "src": "/favicon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Cricket Live",
+      "short_name": "Cricket",
+      "url": "/#cricket"
+    },
+    {
+      "name": "Football Live",
+      "short_name": "Football",
+      "url": "/#football"
+    },
+    {
+      "name": "NBA Live",
+      "short_name": "NBA",
+      "url": "/#nba"
+    }
+  ]
+}

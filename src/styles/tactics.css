@@ -1,0 +1,162 @@
+/* ============================================
+   ESPORTSDUNIYA — Tactical Room & Oracle Chat Styles
+   ============================================ */
+
+.tactical-room {
+    margin-top: 32px;
+    padding: 24px;
+    background: rgba(15, 15, 25, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    backdrop-filter: blur(12px);
+}
+
+.tactical-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+@media (max-width: 900px) {
+    .tactical-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Blueprint Card */
+.blueprint-card {
+    background: rgba(20, 20, 35, 0.6);
+    border-radius: 20px;
+    padding: 20px;
+    border: 1px solid var(--accent-cyber-muted);
+}
+
+.formation-display {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin: 20px 0;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+}
+
+.formation-item {
+    text-align: center;
+    flex: 1;
+}
+
+.formation-val {
+    display: block;
+    font-size: 1.5em;
+    font-weight: 800;
+    color: var(--accent-cyber);
+}
+
+.shift-item {
+    padding: 10px;
+    border-left: 3px solid var(--accent-fire);
+    margin-bottom: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Oracle Chat */
+.oracle-chat-container {
+    background: rgba(20, 20, 35, 0.8);
+    border-radius: 20px;
+    height: 500px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255, 215, 0, 0.2);
+    overflow: hidden;
+}
+
+.oracle-header {
+    padding: 15px 20px;
+    background: linear-gradient(to right, rgba(255, 215, 0, 0.1), transparent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.oracle-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.oracle-message {
+    max-width: 85%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    font-size: 0.95em;
+    line-height: 1.4;
+}
+
+.oracle-message.ai {
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.05);
+    color: #eee;
+    border-bottom-left-radius: 2px;
+}
+
+.oracle-message.user {
+    align-self: flex-end;
+    background: var(--accent-cyber);
+    color: #fff;
+    border-bottom-right-radius: 2px;
+}
+
+.oracle-message.loading {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+.oracle-suggestions {
+    padding: 10px 20px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.suggestion-btn {
+    padding: 6px 14px;
+    border-radius: 100px;
+    background: rgba(255, 215, 0, 0.1);
+    border: 1px solid rgba(255, 215, 0, 0.3);
+    color: var(--accent-gold);
+    font-size: 0.8em;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.suggestion-btn:hover {
+    background: rgba(255, 215, 0, 0.2);
+}
+
+.oracle-input-area {
+    padding: 15px 20px;
+    display: flex;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.oracle-input-area input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+    padding: 10px 15px;
+    border-radius: 12px;
+}
+
+.oracle-input-area button {
+    padding: 0 20px;
+    background: var(--accent-gold);
+    color: #000;
+    border-radius: 12px;
+    border: none;
+    font-weight: 700;
+    cursor: pointer;
+}
