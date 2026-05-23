@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: omnisport-backend
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
