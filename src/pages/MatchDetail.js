@@ -8,6 +8,7 @@ import { createOracle, initOracle } from '../components/Oracle.js';
 import { createSocialPulse, initSocialPulse } from '../components/SocialPulse.js';
 import { buildMatchContext, fetchSocialSentiment } from '../services/apiService.js';
 import { createOracleChat } from '../components/OracleChat.js';
+import { createPreGamePreview } from '../components/PreGamePreview.js';
 import '../styles/tactics.css';
 
 export function createMatchDetail(matchId, gsap) {
@@ -63,6 +64,7 @@ export function createMatchDetail(matchId, gsap) {
             </div>
           </div>
         `;
+
     // Share button logic
     const shareBtn = header.querySelector('#share-btn');
     if (shareBtn && navigator.share) {
@@ -80,6 +82,7 @@ export function createMatchDetail(matchId, gsap) {
         setTimeout(() => shareBtn.textContent = '🔗', 1200);
       });
     }
+
     // Favorite button logic
     const favBtn = header.querySelector('#fav-btn');
     if (favBtn) {
@@ -95,48 +98,59 @@ export function createMatchDetail(matchId, gsap) {
         favBtn.style.background = 'var(--accent-fire)';
       }
     }
-    // Momentum
-    const momentumRoot = page.querySelector('#momentum-engine-root');
-    if (momentumRoot) {
-      momentumRoot.appendChild(createMomentumEngine());
-      showMomentumLoading();
-      fetchMomentumAnalysis(match).then(data => {
-        updateMomentumEngine(data);
-      });
-    }
 
-    // AI Narrative
-    const narrativeRoot = page.querySelector('#ai-narrative-root');
-    let lastReadText = '';
-    if (narrativeRoot) {
-      narrativeRoot.appendChild(createAINarrative());
-      initAINarrative();
-
-      // Periodically check for new text to read (for AI Radio)
-      setInterval(() => {
-        const text = narrativeRoot.querySelector('#ai-narrative-text')?.textContent;
-        if (text && text !== lastReadText) {
-          queueCommentary(text);
-          lastReadText = text;
-        }
-      }, 5000);
-    }
-
-    // Initialize AI Radio
+    // ── Initialize AI Radio ──
     const radioRoot = page.querySelector('#ai-radio-root');
     if (radioRoot) {
       radioRoot.appendChild(createAIRadio());
       initAIRadio();
     }
 
-    // Initialize Fan Zone
+    // ── Momentum Engine / Pre-game Preview ──
+    const momentumRoot = page.querySelector('#momentum-engine-root');
+    if (momentumRoot) {
+      if (match.status === 'upcoming') {
+        momentumRoot.appendChild(createPreGamePreview(match, gsap));
+      } else {
+        momentumRoot.appendChild(createMomentumEngine());
+        showMomentumLoading();
+        fetchMomentumAnalysis(match).then(data => {
+          updateMomentumEngine(data);
+        });
+      }
+    }
+
+    // ── AI Narrative (with interval leak fix) ──
+    const narrativeRoot = page.querySelector('#ai-narrative-root');
+    let lastReadText = '';
+    let narrativePollInterval = null;
+    if (narrativeRoot) {
+      narrativeRoot.appendChild(createAINarrative());
+      initAINarrative();
+
+      // Periodically check for new text to read aloud (for AI Radio)
+      narrativePollInterval = setInterval(() => {
+        const text = narrativeRoot.querySelector('#ai-narrative-text')?.textContent;
+        if (text && text !== lastReadText) {
+          queueCommentary(text);
+          lastReadText = text;
+        }
+      }, 5000);
+
+      // Cleanup interval when navigating away
+      window.addEventListener('hashchange', () => {
+        if (narrativePollInterval) clearInterval(narrativePollInterval);
+      }, { once: true });
+    }
+
+    // ── Fan Zone ──
     const fanZoneRoot = page.querySelector('#fan-zone-root');
     if (fanZoneRoot) {
       fanZoneRoot.appendChild(createFanZone(match.teamA, match.teamB, match.id));
       initFanZone();
     }
 
-    // Initialize Social Pulse
+    // ── Social Pulse ──
     const socialRoot = page.querySelector('#social-pulse-root');
     if (socialRoot) {
       socialRoot.appendChild(createSocialPulse());
@@ -149,14 +163,14 @@ export function createMatchDetail(matchId, gsap) {
       });
     }
 
-    // Initialize Oracle
+    // ── Oracle Prediction Widget ──
     const oracleRoot = page.querySelector('#oracle-root');
     if (oracleRoot) {
       oracleRoot.appendChild(createOracle(match.id, match.teamA, match.teamB));
       initOracle(match.id);
     }
 
-    // Initialize Tactical Room
+    // ── Tactical Room ──
     const context = buildMatchContext(match);
 
     // 1. Oracle Chat

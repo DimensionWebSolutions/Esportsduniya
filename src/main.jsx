@@ -16,6 +16,7 @@ import './styles/crowdpulse.css';
 import './styles/features.css';
 import './styles/login.css';
 import './styles/profile.css';
+import './styles/engagement.css';
 
 // Components
 import { createDynamicIsland, startTickerUpdates, updateTickerData } from './components/DynamicIsland.js';
@@ -30,10 +31,12 @@ import { createTimeMachine } from './pages/TimeMachine.js';
 import { createCrowdPulse, initCrowdPulse } from './pages/CrowdPulse.js';
 import { createMatchDetail } from './pages/MatchDetail.js';
 import { createStandingsPage } from './pages/Standings.js';
+import { createLeaderboard } from './pages/Leaderboard.js';
 import ProfilePage from './pages/Profile.jsx';
 
 // API Service
 import { checkApiHealth, fetchLiveMatches } from './services/apiService.js';
+import { initLiveScoreManager } from './services/LiveScoreManager.js';
 
 // GSAP
 import { gsap } from 'gsap';
@@ -137,8 +140,11 @@ async function renderApp() {
     // 9. Discover backend state before the first dashboard fetch.
     await checkApiHealth();
 
-    // 9.5. Refresh ticker with real AI data
+        // 9.5. Refresh ticker with real AI data
     refreshTicker();
+
+    // 9.6. Initialize live score WebSocket updates
+    initLiveScoreManager();
 
     // 10. Render initial page
     const initialPage = location.hash.slice(1) || 'dashboard';
@@ -154,6 +160,9 @@ async function renderApp() {
 
     // 12. Dismiss loading screen
     dismissLoader();
+
+    // 13. Start reminder checker (every minute)
+    startReminderChecker();
 
     // Entry animation
     gsap.fromTo(app,
@@ -197,14 +206,21 @@ function createMobileNav() {
                 <span class="mobile-nav-icon">📊</span>
                 <span>Live</span>
             </button>
-
-            <button class="mobile-nav-item" data-page="nba">
-                <span class="mobile-nav-icon">🏀</span>
-                <span>NBA</span>
+            <button class="mobile-nav-item" data-page="leaderboard">
+                <span class="mobile-nav-icon">🏆</span>
+                <span>Ranks</span>
             </button>
             <button class="mobile-nav-item" data-page="timemachine">
                 <span class="mobile-nav-icon">⏳</span>
                 <span>History</span>
+            </button>
+            <button class="mobile-nav-item" data-page="crowdpulse">
+                <span class="mobile-nav-icon">🫀</span>
+                <span>Pulse</span>
+            </button>
+            <button class="mobile-nav-item" data-page="profile">
+                <span class="mobile-nav-icon">👤</span>
+                <span>Profile</span>
             </button>
         </div>
     `;
@@ -234,6 +250,49 @@ function createBackToTop() {
     window.addEventListener('scroll', () => {
         btn.classList.toggle('visible', window.scrollY > 400);
     }, { passive: true });
+}
+
+/* ── Reminder Checker ── */
+function startReminderChecker() {
+    function checkReminders() {
+        const reminders = JSON.parse(localStorage.getItem('esd_reminders') || '[]');
+        if (reminders.length === 0) return;
+
+        const now = Date.now();
+        const FIFTEEN_MIN = 15 * 60 * 1000;
+        const notified = JSON.parse(localStorage.getItem('esd_reminded') || '[]');
+
+        reminders.forEach(r => {
+            const kickoffTime = new Date(r.kickoff).getTime();
+            const diff = kickoffTime - now;
+            const key = `${r.matchId}_${r.kickoff}`;
+
+            if (diff > 0 && diff <= FIFTEEN_MIN && !notified.includes(key)) {
+                notified.push(key);
+                localStorage.setItem('esd_reminded', JSON.stringify(notified));
+
+                const msg = `⏰ ${r.teamA} vs ${r.teamB} starts in ~15 minutes!`;
+
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('Match Reminder — EsportsDuniya', {
+                        body: msg,
+                        icon: '/favicon.svg',
+                    });
+                } else {
+                    // Toast fallback
+                    const t = document.createElement('div');
+                    t.className = 'ed-toast ed-toast-success';
+                    t.textContent = msg;
+                    document.body.appendChild(t);
+                    requestAnimationFrame(() => t.classList.add('show'));
+                    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 5000);
+                }
+            }
+        });
+    }
+
+    checkReminders();
+    setInterval(checkReminders, 60000);
 }
 
 /* ── Ticker Refresh with Live Data ── */
@@ -302,6 +361,10 @@ function navigateTo(pageId) {
             switch (actualPage) {
                 case 'standings':
                     page = createStandingsPage(gsap);
+                    main.appendChild(page);
+                    break;
+                case 'leaderboard':
+                    page = createLeaderboard(gsap);
                     main.appendChild(page);
                     break;
                 case 'match':

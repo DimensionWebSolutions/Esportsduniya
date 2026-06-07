@@ -66,7 +66,7 @@ export function initCrowdPulse(gsap) {
   window.addEventListener('resize', redraw);
   // Live polling for updates
   let pollInterval = setInterval(redraw, 30000);
-  animateTotalFans();
+  animateTotalFans(regions);
   startPulseFeed(gsap);
   // Cleanup on navigation away
   window.addEventListener('hashchange', () => {
@@ -147,12 +147,21 @@ function renderPulseRegions(regions) {
   }).join('');
 }
 
-function animateTotalFans() {
+function animateTotalFans(regions) {
   const el = document.getElementById('total-fans');
   if (!el) return;
 
+  // Sum actual region fan counts, fall back to 9.87M if parsing fails
+  let target = 9870000;
+  if (regions && regions.length > 0) {
+    const sum = regions.reduce((acc, r) => {
+      const raw = String(r.fans || '0').replace(/[KMk]/g, (m) => m === 'K' || m === 'k' ? '000' : '000000').replace(/[^0-9]/g, '');
+      return acc + (parseInt(raw, 10) || 0);
+    }, 0);
+    if (sum > 0) target = sum;
+  }
+
   let current = 0;
-  const target = 9870000;
   const duration = 2000;
   const startTime = performance.now();
 

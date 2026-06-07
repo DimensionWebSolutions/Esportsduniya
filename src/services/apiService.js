@@ -28,8 +28,17 @@ const MOCK_STANDINGS = {
 };
 
 export async function fetchStandings(league) {
-    // TODO: Replace with real API call if available
-    return MOCK_STANDINGS[league] || [];
+    if (!apiAvailable) {
+        return MOCK_STANDINGS[league] || [];
+    }
+    try {
+        const res = await fetch(`${API_BASE}/api/sports/standings/${league}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    } catch (err) {
+        console.warn(`[apiService] Standings fetch failed for ${league}, using mock fallback:`, err);
+        return MOCK_STANDINGS[league] || [];
+    }
 }
 /* ============================================
    ESPORTSDUNIYA — API Service Layer
@@ -395,6 +404,40 @@ export async function fetchAINarrative(matchContext, tone = 'hype') {
         return { text: AI_NARRATIVES[tone] || AI_NARRATIVES.hype, source: 'mock' };
     }
 }
+
+export async function fetchPreGamePreview(matchContext) {
+    const MOCK_PREVIEW = {
+        winProbability: { teamA: 50, teamB: 50 },
+        teamAForm: ["W", "W", "D", "L", "W"],
+        teamBForm: ["L", "W", "W", "D", "L"],
+        headToHead: "In their last 5 matchups, Team A won 2, Team B won 2, and 1 ended in a draw.",
+        keyMatchups: [
+            "Attack vs. Defence: Team A's aggressive frontline vs Team B's compact defensive line.",
+            "Midfield Battle: The team that controls the tempo in the middle will dominate the transitions."
+        ],
+        summary: "This match is expected to be closely contested, with both teams showing balanced forms recently. Minor tactical errors will decide the outcome."
+    };
+
+    if (!apiAvailable) {
+        return { ...MOCK_PREVIEW, source: 'mock' };
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/api/ai/preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ matchContext }),
+            signal: AbortSignal.timeout(30000),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        return { ...data, source: 'ai' };
+    } catch (err) {
+        console.warn('[apiService] Pre-game preview fetch failed, using mock:', err);
+        return { ...MOCK_PREVIEW, source: 'mock' };
+    }
+}
+
 
 export async function fetchMomentumAnalysis(matchContext, events) {
     if (!apiAvailable) return { ...MOMENTUM_DATA, source: 'mock' };

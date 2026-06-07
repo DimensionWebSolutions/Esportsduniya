@@ -24,6 +24,13 @@ export default function Login({ onLogin }) {
         localStorage.setItem('user', JSON.stringify(data.user));
         onLogin(data.user);
         setMessage(data.message);
+
+        // Show onboarding for new registrations
+        if (endpoint === 'register' && !localStorage.getItem('esd_onboarded')) {
+          import('../components/Onboarding.js').then(({ showOnboarding }) => {
+            setTimeout(() => showOnboarding(data.user.username), 800);
+          });
+        }
       } else {
         setError(data.error || data.message || 'Authentication failed.');
       }
@@ -37,6 +44,14 @@ export default function Login({ onLogin }) {
     e.preventDefault();
     if (!username || !password) {
       setError('Please enter both username and password.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (username.length < 3) {
+      setError('Username must be at least 3 characters.');
       return;
     }
 

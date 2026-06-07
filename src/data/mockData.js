@@ -212,7 +212,7 @@ export const HISTORICAL_EVENTS = [
     {
         id: 'h5',
         era: 'retro',
-        decade: '1970s',
+        decade: '1980s',
         date: 'June 25, 1983',
         title: 'India Stuns West Indies — 1983 Cricket World Cup Final',
         sport: 'cricket',
@@ -334,7 +334,8 @@ export const NAV_ITEMS = [
     { id: 'nba', icon: '🏀', label: 'NBA' },
     { id: 'tennis', icon: '🎾', label: 'Tennis' },
     { id: 'f1', icon: '🏎️', label: 'F1' },
-    { id: 'standings', icon: '🏆', label: 'Standings' },
+    { id: 'standings', icon: '📋', label: 'Standings' },
+    { id: 'leaderboard', icon: '🏆', label: 'Leaderboard' },
     { id: 'divider2', type: 'divider' },
     { id: 'timemachine', icon: '⏳', label: 'Time Machine' },
     { id: 'crowdpulse', icon: '🫀', label: 'Crowd Pulse' },

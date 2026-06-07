@@ -2,12 +2,12 @@
    ESPORTSDUNIYA — Momentum Engine Component
    Dynamic, AI-powered momentum visualization
    ============================================ */
+import { gsap } from 'gsap';
 import { MOMENTUM_DATA } from '../data/mockData.js';
 
 // Current momentum data (starts with mock, updated by AI)
 let currentData = { ...MOMENTUM_DATA };
 let lastProbA = 50;
-import { gsap } from 'gsap';
 
 export function createMomentumEngine() {
   const panel = document.createElement('div');

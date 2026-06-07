@@ -2,6 +2,7 @@
    ESPORTSDUNIYA — The Oracle Component
    Prediction Game & Streaks
    ============================================ */
+
 export function createOracle(matchId, teamA = { name: 'Team A' }, teamB = { name: 'Team B' }) {
     const container = document.createElement('div');
     container.className = 'oracle-widget glass-card';
@@ -67,7 +68,7 @@ export function initOracle(matchId) {
     loadPool();
     connectLiveUpdates();
 
-    // Check if locked
+    // Check if already locked
     const saved = localStorage.getItem(storageKey);
     if (saved) {
         showLockedState(JSON.parse(saved));
@@ -93,20 +94,50 @@ export function initOracle(matchId) {
     // Lock logic
     widget.querySelector('#lock-pred').addEventListener('click', async () => {
         if (!selected) {
-            alert('Please select a team first!'); // Simple feedback
+            alert('Please select a team first!');
             return;
         }
 
         const wager = parseInt(range.value);
+        const odds = selected === 'teamA' ? 1.8 : 2.1;
         const prediction = {
             team: selected,
             wager,
             timestamp: Date.now(),
-            potentialWin: Math.floor(wager * (selected === 'teamA' ? 1.8 : 2.1))
+            potentialWin: Math.floor(wager * odds),
         };
 
         localStorage.setItem(storageKey, JSON.stringify(prediction));
         showLockedState(prediction);
+
+        // ── Sync prediction to server ──
+        const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+        const API_BASE = import.meta.env.VITE_API_URL || '';
+        if (currentUser?.username) {
+            try {
+                const saveRes = await fetch(`${API_BASE}/api/predictions/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: currentUser.username,
+                        matchId,
+                        matchLabel: `${teamNames.teamA} vs ${teamNames.teamB}`,
+                        sport: widget.dataset.sport || 'unknown',
+                        teamPicked: selected,
+                        teamPickedName: teamNames[selected] || selected,
+                        wager,
+                        odds,
+                    }),
+                }).then(r => r.json());
+                if (saveRes.error && saveRes.error !== 'Prediction already made for this match') {
+                    console.warn('Prediction save failed:', saveRes.error);
+                }
+            } catch (err) {
+                console.warn('Oracle prediction save failed:', err);
+            }
+        }
+
+        // Sync to Oracle community pool
         try {
             const pool = await fetch(`/api/oracle/${encodeURIComponent(matchId)}/prediction`, {
                 method: 'POST',
@@ -115,10 +146,9 @@ export function initOracle(matchId) {
             }).then(r => r.json());
             updatePool(pool);
         } catch (err) {
-            console.warn('Oracle prediction sync failed:', err);
+            console.warn('Oracle pool sync failed:', err);
         }
 
-        // Simulate "Oracle sees all" effect
         triggerOracleEffect(widget);
     });
 
@@ -166,7 +196,6 @@ export function initOracle(matchId) {
 }
 
 function triggerOracleEffect(widget) {
-    // Add a mystical glow animation or sound
     widget.classList.add('mystical-pulse');
     setTimeout(() => widget.classList.remove('mystical-pulse'), 2000);
 }

@@ -25,6 +25,29 @@ const users = [];
 const fanZoneState = new Map();
 const predictionState = new Map();
 
+// ── Fan Engagement: Activity counters for trending ──
+const trendingCounters = {}; // { sport: { count, lastReset } }
+const TRENDING_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+
+function getTrendingCounter(sport) {
+  const now = Date.now();
+  if (!trendingCounters[sport] || (now - trendingCounters[sport].lastReset) > TRENDING_WINDOW_MS) {
+    trendingCounters[sport] = { count: 0, lastReset: now };
+  }
+  return trendingCounters[sport];
+}
+
+function incrementTrending(sport) {
+  const counter = getTrendingCounter(sport);
+  counter.count += 1;
+}
+
+// ── Highlights cache ──
+let highlightsCache = null;
+let highlightsCacheTime = 0;
+const HIGHLIGHTS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // Helper to find a user
 const findUser = (username) => users.find(u => u.username === username);
 
@@ -78,7 +101,19 @@ app.post('/api/register', (req, res) => {
       favoriteSports: []
     },
     matchHistory: [],
-    achievements: []
+    achievements: [],
+    predictions: [],
+    // Fan engagement fields
+    fanPoints: 0,
+    badges: [],
+    streak: 0,
+    lastLoginDate: null,
+    cheeredMatches: [],
+    sharedMatches: [],
+    following: [],
+    followers: [],
+    activityLog: [],
+    avatar: '🦁',
   };
   
   users.push(newUser);
@@ -97,8 +132,18 @@ app.post('/api/login', (req, res) => {
   if (!user || user.password !== password) {
     return res.status(401).json({ error: 'Invalid username or password.' });
   }
+
+  // ── Streak logic ──
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  if (user.lastLoginDate === yesterday) {
+    user.streak = (user.streak || 0) + 1;
+  } else if (user.lastLoginDate !== today) {
+    user.streak = 1;
+  }
+  user.lastLoginDate = today;
   
-  console.log(`   👤 User Logged In: ${username}`);
+  console.log(`   👤 User Logged In: ${username} (streak: ${user.streak})`);
   const { password: _, ...userSafe } = user;
   res.json({ message: 'Login successful!', user: userSafe });
 });
@@ -120,14 +165,470 @@ app.put('/api/profile/:username', (req, res) => {
   if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
   
   // Update allowed fields
-  const { preferences, matchHistory, achievements } = req.body;
+  const { preferences, matchHistory, achievements, avatar, following, followers } = req.body;
   
   if (preferences) users[userIndex].preferences = { ...users[userIndex].preferences, ...preferences };
-  if (matchHistory) users[userIndex].matchHistory = matchHistory; // Append or replace strategy needed in real app
+  if (matchHistory) users[userIndex].matchHistory = matchHistory;
   if (achievements) users[userIndex].achievements = achievements;
+  if (avatar !== undefined) users[userIndex].avatar = avatar;
+  if (following !== undefined) users[userIndex].following = following;
+  if (followers !== undefined) users[userIndex].followers = followers;
 
   const { password: _, ...userSafe } = users[userIndex];
   res.json({ message: 'Profile updated', user: userSafe });
+});
+
+// ── FanPoints Award ──
+app.post('/api/fanpoints/award', (req, res) => {
+  const { username, points, reason } = req.body;
+  if (!username || !points) return res.status(400).json({ error: 'username and points required' });
+
+  const user = findUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.fanPoints = (user.fanPoints || 0) + Number(points);
+
+  // Check tier badges
+  const tiers = [
+    { threshold: 500, badge: '🥉 Bronze Fan' },
+    { threshold: 1000, badge: '🥈 Silver Fan' },
+    { threshold: 2500, badge: '🥇 Gold Fan' },
+    { threshold: 5000, badge: '💎 Diamond Fan' },
+  ];
+  for (const tier of tiers) {
+    if (user.fanPoints >= tier.threshold && !user.badges.includes(tier.badge)) {
+      user.badges.push(tier.badge);
+      console.log(`   🏅 Badge awarded to ${username}: ${tier.badge}`);
+    }
+  }
+
+  // Log activity
+  if (!user.activityLog) user.activityLog = [];
+  user.activityLog.push({ type: 'points', data: { points, reason }, timestamp: new Date().toISOString() });
+
+  const { password: _, ...userSafe } = user;
+  console.log(`   🪙 FanPoints: +${points} to ${username} (${reason}) → total: ${user.fanPoints}`);
+  res.json({ message: 'Points awarded', user: userSafe });
+});
+
+// ── Predictions: Save a new prediction ──
+app.post('/api/predictions/save', (req, res) => {
+  const { username, matchId, matchLabel, sport, teamPicked, teamPickedName, wager, odds } = req.body;
+  if (!username || !matchId || !teamPicked) {
+    return res.status(400).json({ error: 'username, matchId, teamPicked required' });
+  }
+  const user = findUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!user.predictions) user.predictions = [];
+
+  // Prevent duplicate prediction for same match
+  const existing = user.predictions.find(p => String(p.matchId) === String(matchId));
+  if (existing) {
+    return res.status(409).json({ error: 'Prediction already made for this match', prediction: existing });
+  }
+
+  const prediction = {
+    id: `pred_${Date.now()}`,
+    matchId: String(matchId),
+    matchLabel: matchLabel || 'Unknown Match',
+    sport: sport || 'unknown',
+    teamPicked,
+    teamPickedName: teamPickedName || teamPicked,
+    wager: Number(wager) || 50,
+    odds: Number(odds) || 1.8,
+    potentialWin: Math.floor((Number(wager) || 50) * (Number(odds) || 1.8)),
+    status: 'pending',   // 'pending' | 'correct' | 'incorrect'
+    outcome: null,
+    pointsResult: null,
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+  };
+
+  user.predictions.push(prediction);
+  user.activityLog = user.activityLog || [];
+  user.activityLog.push({ type: 'prediction', data: { match: matchLabel, sport }, timestamp: prediction.createdAt });
+
+  console.log(`   🔮 Prediction saved: ${username} picked ${teamPickedName} for ${matchLabel}`);
+  res.status(201).json({ message: 'Prediction saved', prediction });
+});
+
+function resolveMatchPredictions(match) {
+  if (match.status !== 'finished') return;
+
+  const sport = match.sport?.toLowerCase();
+  const teamA = match.teamA;
+  const teamB = match.teamB;
+
+  if (!teamA || !teamB) return;
+
+  function parseScore(scoreStr) {
+    if (!scoreStr) return 0;
+    const m = String(scoreStr).match(/\d+/);
+    return m ? parseInt(m[0], 10) : 0;
+  }
+
+  let winner = null;
+  if (sport === 'f1') {
+    const pA = parseScore(teamA.score);
+    const pB = parseScore(teamB.score);
+    if (pA > 0 && pB > 0) {
+      winner = pA < pB ? 'teamA' : 'teamB'; // lower rank wins in F1 driver comparisons
+    }
+  } else {
+    const sA = parseScore(teamA.score);
+    const sB = parseScore(teamB.score);
+    if (sA !== sB) {
+      winner = sA > sB ? 'teamA' : 'teamB';
+    }
+  }
+
+  if (!winner) return;
+
+  users.forEach(user => {
+    if (!user.predictions) return;
+
+    const pred = user.predictions.find(p => String(p.matchId) === String(match.id) && p.status === 'pending');
+    if (!pred) return;
+
+    const isCorrect = pred.teamPicked === winner;
+    pred.status = isCorrect ? 'correct' : 'incorrect';
+    pred.outcome = winner;
+    pred.resolvedAt = new Date().toISOString();
+
+    let pointsDelta = 0;
+    if (isCorrect) {
+      pointsDelta = pred.potentialWin;
+      user.fanPoints = (user.fanPoints || 0) + pointsDelta;
+      user.activityLog = user.activityLog || [];
+      user.activityLog.push({
+        type: 'points',
+        data: { points: pointsDelta, reason: `Correct prediction: ${pred.matchLabel}` },
+        timestamp: pred.resolvedAt,
+      });
+    } else {
+      pointsDelta = -pred.wager;
+      user.fanPoints = Math.max(0, (user.fanPoints || 0) + pointsDelta);
+    }
+    pred.pointsResult = pointsDelta;
+
+    // Badges update
+    if (isCorrect && !user.badges.find(b => b.name === '🔮 Oracle')) {
+      user.badges.push({ name: '🔮 Oracle', earnedAt: new Date().toISOString() });
+    }
+    const correctCount = user.predictions.filter(p => p.status === 'correct').length;
+    if (correctCount >= 5 && !user.badges.find(b => b.name === '🔮 Oracle Master')) {
+      user.badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
+    }
+
+    console.log(`   🔮 Auto-Resolved: ${user.username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
+
+    // Broadcast user activity update
+    broadcastRealtime({
+      type: 'activity',
+      username: user.username,
+      item: {
+        type: 'prediction',
+        username: user.username,
+        avatar: user.avatar || '🦁',
+        timestamp: pred.resolvedAt,
+        data: {
+          match: pred.matchLabel,
+          sport: pred.sport,
+          outcome: pred.status,
+          points: pointsDelta
+        }
+      }
+    });
+  });
+}
+
+// ── Predictions: Resolve a prediction (correct/incorrect) ──
+app.post('/api/predictions/resolve', (req, res) => {
+  const { username, matchId, winner } = req.body;
+  if (!username || !matchId || !winner) {
+    return res.status(400).json({ error: 'username, matchId, winner required' });
+  }
+  const user = findUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!user.predictions) return res.status(404).json({ error: 'No predictions found' });
+
+  const pred = user.predictions.find(p => String(p.matchId) === String(matchId) && p.status === 'pending');
+  if (!pred) return res.status(404).json({ error: 'Pending prediction not found for this match' });
+
+  const isCorrect = pred.teamPicked === winner;
+  pred.status = isCorrect ? 'correct' : 'incorrect';
+  pred.outcome = winner;
+  pred.resolvedAt = new Date().toISOString();
+
+  let pointsDelta = 0;
+  if (isCorrect) {
+    pointsDelta = pred.potentialWin;
+    user.fanPoints = (user.fanPoints || 0) + pointsDelta;
+    user.activityLog = user.activityLog || [];
+    user.activityLog.push({
+      type: 'points',
+      data: { points: pointsDelta, reason: `Correct prediction: ${pred.matchLabel}` },
+      timestamp: pred.resolvedAt,
+    });
+  } else {
+    pointsDelta = -pred.wager;
+    user.fanPoints = Math.max(0, (user.fanPoints || 0) + pointsDelta);
+  }
+  pred.pointsResult = pointsDelta;
+
+  // Badge: First correct prediction
+  if (isCorrect && !user.badges.find(b => b.name === '🔮 Oracle')) {
+    user.badges.push({ name: '🔮 Oracle', earnedAt: new Date().toISOString() });
+  }
+  // Badge: 5 correct predictions
+  const correctCount = user.predictions.filter(p => p.status === 'correct').length;
+  if (correctCount >= 5 && !user.badges.find(b => b.name === '🔮 Oracle Master')) {
+    user.badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
+  }
+
+  console.log(`   🔮 Resolved: ${username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
+  const { password: _, ...userSafe } = user;
+  res.json({ message: 'Prediction resolved', prediction: pred, pointsDelta, user: userSafe });
+});
+
+// ── Predictions: Get all predictions + accuracy stats ──
+app.get('/api/predictions/:username', (req, res) => {
+  const user = findUser(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const predictions = (user.predictions || []).slice().reverse(); // newest first
+  const total = predictions.length;
+  const resolved = predictions.filter(p => p.status !== 'pending');
+  const correct = predictions.filter(p => p.status === 'correct');
+  const incorrect = predictions.filter(p => p.status === 'incorrect');
+  const pending = predictions.filter(p => p.status === 'pending');
+  const accuracyPct = resolved.length > 0 ? Math.round((correct.length / resolved.length) * 100) : 0;
+  const pointsWon = correct.reduce((sum, p) => sum + (p.potentialWin || 0), 0);
+  const pointsLost = incorrect.reduce((sum, p) => sum + (p.wager || 0), 0);
+
+  // Current correct streak
+  let streak = 0;
+  for (const p of predictions) {
+    if (p.status === 'correct') streak++;
+    else if (p.status === 'incorrect') break;
+  }
+
+  res.json({
+    predictions,
+    stats: {
+      total,
+      correct: correct.length,
+      incorrect: incorrect.length,
+      pending: pending.length,
+      accuracyPct,
+      pointsWon,
+      pointsLost,
+      netPoints: pointsWon - pointsLost,
+      streak,
+    },
+  });
+});
+
+// ── Leaderboard ──
+app.get('/api/leaderboard', (req, res) => {
+  const { window: win = 'alltime' } = req.query;
+  const today = new Date().toISOString().split('T')[0];
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+
+  let filtered = users;
+  if (win === 'today') {
+    filtered = users.filter(u => u.lastLoginDate === today);
+  } else if (win === 'week') {
+    filtered = users.filter(u => u.lastLoginDate && u.lastLoginDate >= weekAgo);
+  }
+
+  const sorted = filtered
+    .map(u => ({
+      username: u.username,
+      fanPoints: u.fanPoints || 0,
+      badges: u.badges || [],
+      streak: u.streak || 0,
+      avatar: u.avatar || '🦁',
+      favoriteSports: u.preferences?.favoriteSports || [],
+    }))
+    .sort((a, b) => b.fanPoints - a.fanPoints)
+    .slice(0, 50);
+
+  res.json(sorted);
+});
+
+// ── Follow ──
+app.post('/api/follow', (req, res) => {
+  const { follower, following } = req.body;
+  const followerUser = findUser(follower);
+  const followingUser = findUser(following);
+  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
+
+  if (!followerUser.following) followerUser.following = [];
+  if (!followingUser.followers) followingUser.followers = [];
+
+  if (!followerUser.following.includes(following)) followerUser.following.push(following);
+  if (!followingUser.followers.includes(follower)) followingUser.followers.push(follower);
+
+  res.json({ message: 'Followed', following: followerUser.following });
+});
+
+app.delete('/api/follow', (req, res) => {
+  const { follower, following } = req.body;
+  const followerUser = findUser(follower);
+  const followingUser = findUser(following);
+  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
+
+  followerUser.following = (followerUser.following || []).filter(u => u !== following);
+  followingUser.followers = (followingUser.followers || []).filter(u => u !== follower);
+
+  res.json({ message: 'Unfollowed', following: followerUser.following });
+});
+
+// ── Activity Feed ──
+app.get('/api/activity-feed/:username', (req, res) => {
+  const user = findUser(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const following = user.following || [];
+  const feed = [];
+
+  for (const followedName of following) {
+    const followedUser = findUser(followedName);
+    if (followedUser && followedUser.activityLog) {
+      for (const item of followedUser.activityLog) {
+        feed.push({ username: followedName, avatar: followedUser.avatar || '🦁', ...item });
+      }
+    }
+  }
+
+  feed.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  res.json(feed.slice(0, 20));
+});
+
+// ── Post Activity ──
+app.post('/api/activity', (req, res) => {
+  const { username, type, data } = req.body;
+  const user = findUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!user.activityLog) user.activityLog = [];
+  const item = { type, data, timestamp: new Date().toISOString() };
+  user.activityLog.push(item);
+  if (user.activityLog.length > 100) user.activityLog = user.activityLog.slice(-100);
+
+  // Increment trending counter for sport
+  if (data?.sport) incrementTrending(data.sport);
+
+  res.json({ message: 'Activity logged', item });
+});
+
+// ── Trending ──
+app.get('/api/trending', (req, res) => {
+  const SPORT_META = {
+    cricket: { label: 'Cricket', icon: '🏏' },
+    football: { label: 'Football', icon: '⚽' },
+    nba: { label: 'NBA', icon: '🏀' },
+    tennis: { label: 'Tennis', icon: '🎾' },
+    f1: { label: 'F1', icon: '🏎️' },
+  };
+
+  const now = Date.now();
+  const results = Object.entries(trendingCounters)
+    .filter(([, v]) => (now - v.lastReset) < TRENDING_WINDOW_MS)
+    .map(([sport, v]) => ({
+      sport,
+      label: SPORT_META[sport]?.label || sport,
+      icon: SPORT_META[sport]?.icon || '🏅',
+      count: v.count,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+
+  // Fallback if no activity
+  if (results.length < 3) {
+    const fallback = [
+      { sport: 'cricket', label: 'Cricket', icon: '🏏', count: 42 },
+      { sport: 'football', label: 'Football', icon: '⚽', count: 38 },
+      { sport: 'nba', label: 'NBA', icon: '🏀', count: 25 },
+    ];
+    for (const fb of fallback) {
+      if (!results.find(r => r.sport === fb.sport)) results.push(fb);
+      if (results.length >= 3) break;
+    }
+  }
+
+  res.json(results.slice(0, 3));
+});
+
+// ── Highlights ──
+app.get('/api/highlights', async (req, res) => {
+  const now = Date.now();
+  if (highlightsCache && (now - highlightsCacheTime) < HIGHLIGHTS_CACHE_TTL) {
+    return res.json(highlightsCache);
+  }
+
+  const MOCK_HIGHLIGHTS = [
+    { id: 1, sport: 'cricket', title: 'Rohit Sharma smashes 6 sixes in an over', summary: 'Mumbai Indians captain Rohit Sharma put on a stunning display, hitting 6 consecutive sixes in the 18th over against CSK at Wankhede Stadium.', matchContext: 'MI vs CSK, IPL 2026', timestamp: new Date().toISOString() },
+    { id: 2, sport: 'football', title: 'Haaland hat-trick seals Champions League spot', summary: 'Erling Haaland scored a stunning hat-trick in the 89th minute to secure Manchester City a place in the Champions League semi-finals.', matchContext: 'Man City vs Real Madrid, UCL', timestamp: new Date().toISOString() },
+    { id: 3, sport: 'nba', title: 'LeBron James breaks all-time scoring record again', summary: 'LeBron James added another milestone to his legendary career, surpassing his own all-time scoring record with a 40-point performance.', matchContext: 'Lakers vs Warriors, NBA', timestamp: new Date().toISOString() },
+    { id: 4, sport: 'tennis', title: 'Alcaraz stuns Djokovic in five-set thriller', summary: 'Carlos Alcaraz defeated Novak Djokovic in an epic five-set match at the Australian Open, claiming his third Grand Slam title.', matchContext: 'Alcaraz vs Djokovic, AO Final', timestamp: new Date().toISOString() },
+    { id: 5, sport: 'f1', title: 'Verstappen wins Monaco GP from P10 on grid', summary: 'Max Verstappen delivered one of the greatest drives in Formula 1 history, starting from 10th and winning the Monaco Grand Prix.', matchContext: 'Monaco GP, F1 2026', timestamp: new Date().toISOString() },
+  ];
+
+  if (!hasGemini) {
+    highlightsCache = MOCK_HIGHLIGHTS;
+    highlightsCacheTime = now;
+    return res.json(MOCK_HIGHLIGHTS);
+  }
+
+  const prompt = `You are a sports news aggregator. Search the internet for the top 5 sports highlights from the last 24 hours.
+
+Return ONLY valid JSON array (no markdown) in this format:
+[
+  {
+    "id": 1,
+    "sport": "<cricket|football|nba|tennis|f1>",
+    "title": "<headline>",
+    "summary": "<2-3 sentence summary>",
+    "matchContext": "<teams/event>",
+    "timestamp": "<ISO timestamp>"
+  }
+]
+
+Return exactly 5 highlights. Return ONLY the JSON array.`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+      }),
+    });
+    const data = await response.json();
+    let jsonStr = (data.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim();
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) jsonStr = fenceMatch[1].trim();
+    const arrayStart = jsonStr.indexOf('[');
+    const arrayEnd = jsonStr.lastIndexOf(']');
+    if (arrayStart !== -1 && arrayEnd !== -1) jsonStr = jsonStr.slice(arrayStart, arrayEnd + 1);
+    const highlights = JSON.parse(jsonStr);
+    highlightsCache = Array.isArray(highlights) ? highlights : MOCK_HIGHLIGHTS;
+    highlightsCacheTime = now;
+    console.log(`   ✅ Highlights: ${highlightsCache.length} items cached`);
+    res.json(highlightsCache);
+  } catch (err) {
+    console.error('   ❌ Highlights error:', err.message);
+    highlightsCache = MOCK_HIGHLIGHTS;
+    highlightsCacheTime = now;
+    res.json(MOCK_HIGHLIGHTS);
+  }
 });
 
 const PORT = process.env.PORT || 3001;
@@ -187,7 +688,7 @@ app.get('/api/crowdpulse', async (req, res) => {
   Base this on real trending sports and live matches happening TODAY.`;
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -261,7 +762,7 @@ app.get('/api/validate', async (req, res) => {
   // 2. Test Gemini key
   if (hasGemini) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -274,7 +775,7 @@ app.get('/api/validate', async (req, res) => {
       if (response.ok && data.candidates) {
         results.gemini = {
           status: '✅ WORKING',
-          model: 'gemini-2.0-flash',
+          model: 'gemini-2.5-flash',
           testResponse: data.candidates[0]?.content?.parts?.[0]?.text?.trim() || 'OK',
         };
       } else {
@@ -573,7 +1074,7 @@ IMPORTANT: Base your narrative ONLY on real data you found via internet search. 
   try {
     if (hasGemini) {
       // Use Gemini with Google Search grounding for real-time data
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -600,6 +1101,93 @@ IMPORTANT: Base your narrative ONLY on real data you found via internet search. 
     }
   } catch (err) {
     console.error('   ❌ AI narrative:', err.message);
+    res.status(502).json({ error: err.message, fallback: true });
+  }
+});
+
+app.post('/api/ai/preview', async (req, res) => {
+  const { matchContext } = req.body;
+
+  const prompt = `You are a professional sports form analyst for the Esportsduniya platform.
+  
+FIRST: Search the internet for the LATEST head-to-head records, recent match form, team lineups, and news about this upcoming match.
+
+MATCH TO RESEARCH:
+${matchContext}
+
+AFTER researching, return a JSON object (strictly formatted, no markdown code block formatting, no extra text) with a pre-game form analysis in the following schema:
+{
+  "winProbability": { "teamA": 50, "teamB": 50 },
+  "teamAForm": ["W", "L", "W", "D", "W"],
+  "teamBForm": ["L", "L", "W", "W", "D"],
+  "headToHead": "ONE short sentence summary of past meetings.",
+  "keyMatchups": [
+    "Matchup 1 (max 8 words)",
+    "Matchup 2 (max 8 words)"
+  ],
+  "summary": "ONE short sentence preview analysis."
+}
+
+IMPORTANT: Keep all descriptions extremely brief and concise. The total length of the JSON string must be under 300 characters. Do not include comments, annotations, or markdown tags like \`\`\`json. Return ONLY valid JSON.`;
+
+  try {
+    if (hasGemini) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      console.log('   🔍 AI Preview: Researching upcoming match via Gemini + Google Search...');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          tools: [{ google_search: {} }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 4096,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Gemini ${response.status}: ${text.slice(0, 300)}`);
+      }
+
+      const data = await response.json();
+      console.log('   🔍 AI Preview candidate details:', JSON.stringify(data.candidates?.[0]));
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      console.log('   🔍 AI Preview raw response:', rawText);
+      
+      let jsonStr = rawText.trim();
+      const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) {
+        jsonStr = fenceMatch[1].trim();
+      }
+
+      const objStart = jsonStr.indexOf('{');
+      const objEnd = jsonStr.lastIndexOf('}');
+      if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
+        jsonStr = jsonStr.slice(objStart, objEnd + 1);
+      }
+
+      let parsed = {};
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        // Fallback cleanup: remove trailing commas or try resolving partial response if needed
+        try {
+          const cleaned = jsonStr.replace(/,\s*([}\]])/g, '$1');
+          parsed = JSON.parse(cleaned);
+        } catch (e) {
+          console.error('   ❌ Failed to parse AI Preview JSON:', parseErr.message, 'Raw:', rawText);
+          throw parseErr;
+        }
+      }
+      res.json(parsed);
+    } else {
+      res.status(503).json({ error: 'No Gemini API key configured', fallback: true });
+    }
+  } catch (err) {
+    console.error('   ❌ AI Preview error:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
   }
 });
@@ -650,7 +1238,7 @@ RULES:
       return res.status(503).json({ error: 'No Gemini API key configured', fallback: true });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     console.log('   🔍 AI Momentum: Analyzing match via Gemini + Google Search...');
 
     const response = await fetch(url, {
@@ -737,7 +1325,7 @@ app.post('/api/ai/social-sentiment', async (req, res) => {
       return res.status(503).json({ error: 'No Gemini API key configured' });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     console.log('   🔍 Social Pulse: Analyzing fan sentiment via Gemini + Google Search...');
 
     const response = await fetch(url, {
@@ -805,7 +1393,7 @@ async function callOpenAI(prompt) {
 
 // ── Gemini Helper ──
 async function callGemini(prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -853,7 +1441,7 @@ If you cannot find real-time tactical data for this specific match, base it on t
   try {
     if (!hasGemini) return res.status(503).json({ error: 'No Gemini API key configured' });
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -914,7 +1502,7 @@ If info is unavailable, use your general knowledge but mention you're waiting fo
   try {
     if (!hasGemini) return res.status(503).json({ error: 'No Gemini API key configured' });
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -959,9 +1547,17 @@ If info is unavailable, use your general knowledge but mention you're waiting fo
 const aiScoresCache = {}; // { sport: { data: [], timestamp: 0 } }
 const AI_CACHE_TTL = 60_000; // 60 seconds
 
+const standingsCache = {}; // { league: { data: [], timestamp: 0 } }
+const STANDINGS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 function isCacheValid(sport) {
   const entry = aiScoresCache[sport];
   return entry && (Date.now() - entry.timestamp) < AI_CACHE_TTL;
+}
+
+function isStandingsCacheValid(league) {
+  const entry = standingsCache[league];
+  return entry && (Date.now() - entry.timestamp) < STANDINGS_CACHE_TTL;
 }
 
 function getSportPrompt(sport) {
@@ -1072,7 +1668,7 @@ async function fetchScoresViaGemini(sport) {
   if (!hasGemini) throw new Error('No Gemini API key configured');
 
   const prompt = getSportPrompt(sport);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
   console.log(`   🔍 AI Search: Fetching ${sport} scores via Gemini + Google Search...`);
 
@@ -1131,8 +1727,36 @@ app.get('/api/sports/ai-scores/:sport', async (req, res) => {
   try {
     const matches = await fetchScoresViaGemini(sport);
 
+    // Detect score changes vs previous cache before updating
+    const prev = aiScoresCache[sport]?.data || [];
+    const liveMatches = matches.filter(m => m.status === 'live');
+
     // Update cache
     aiScoresCache[sport] = { data: matches, timestamp: Date.now() };
+
+    // Auto-resolve any predictions for finished matches
+    matches.forEach(resolveMatchPredictions);
+
+    // ── Broadcast live score updates via WebSocket ──
+    if (liveMatches.length > 0) {
+      broadcastRealtime({
+        type: 'score_update',
+        sport,
+        timestamp: new Date().toISOString(),
+        matches: liveMatches.map(m => ({
+          id: m.id,
+          sport: m.sport,
+          status: m.status,
+          minute: m.minute,
+          teamA: { name: m.teamA?.name, score: m.teamA?.score, flag: m.teamA?.flag },
+          teamB: { name: m.teamB?.name, score: m.teamB?.score, flag: m.teamB?.flag },
+          momentum: m.momentum,
+          league: m.league,
+          venue: m.venue,
+        })),
+      });
+      console.log(`   📡 WS Broadcast: ${liveMatches.length} live ${sport} score updates`);
+    }
 
     res.json({
       response: matches,
@@ -1150,8 +1774,128 @@ app.get('/api/sports/ai-scores/:sport', async (req, res) => {
 // ── AI Scores: Clear Cache (manual refresh) ──
 app.post('/api/sports/ai-scores/refresh', (req, res) => {
   Object.keys(aiScoresCache).forEach(k => delete aiScoresCache[k]);
-  console.log('   🔄 AI Scores cache cleared');
+  Object.keys(standingsCache).forEach(k => delete standingsCache[k]);
+  console.log('   🔄 AI Scores & Standings cache cleared');
   res.json({ status: 'cache_cleared' });
+});
+
+// Mock Standings fallback
+const MOCK_STANDINGS = {
+  football: [
+    { team: 'Man City', wins: 24, losses: 3, draws: 5, points: 77 },
+    { team: 'Arsenal', wins: 23, losses: 4, draws: 5, points: 74 },
+    { team: 'Liverpool', wins: 22, losses: 5, draws: 5, points: 71 },
+  ],
+  cricket: [
+    { team: 'MI', wins: 9, losses: 5, draws: 0, points: 18 },
+    { team: 'CSK', wins: 8, losses: 6, draws: 0, points: 16 },
+    { team: 'RCB', wins: 7, losses: 7, draws: 0, points: 14 },
+  ],
+  nba: [
+    { team: 'Lakers', wins: 52, losses: 30, draws: 0, points: 104 },
+    { team: 'Celtics', wins: 50, losses: 32, draws: 0, points: 100 },
+    { team: 'Warriors', wins: 48, losses: 34, draws: 0, points: 96 },
+  ],
+  tennis: [
+    { team: 'Djokovic', wins: 38, losses: 4, draws: 0, points: 9000 },
+    { team: 'Alcaraz', wins: 35, losses: 7, draws: 0, points: 8500 },
+    { team: 'Sinner', wins: 33, losses: 8, draws: 0, points: 8200 },
+  ],
+  f1: [
+    { team: 'Verstappen', wins: 10, losses: 2, draws: 0, points: 250 },
+    { team: 'Hamilton', wins: 7, losses: 5, draws: 0, points: 200 },
+    { team: 'Leclerc', wins: 5, losses: 7, draws: 0, points: 180 },
+  ],
+};
+
+async function fetchStandingsViaGemini(league) {
+  if (!hasGemini) throw new Error('No Gemini API key configured');
+
+  const leaguePrompts = {
+    football: `English Premier League (EPL) table/standings top 10 teams`,
+    cricket: `Indian Premier League (IPL) points table/standings current season`,
+    nba: `NBA standings leaders top 10 teams`,
+    tennis: `ATP world rankings top 10 players`,
+    f1: `Formula 1 Driver Championship standings top 10 drivers`
+  };
+
+  const topic = leaguePrompts[league] || leaguePrompts.football;
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const prompt = `You are a sports data API. Today is ${today}.
+  
+Search the internet for the LATEST real-time standings/rankings for the following: ${topic}.
+Return a JSON array of the top 10 entries.
+
+Format:
+[
+  {"team": "Name of team or player", "wins": Number, "losses": Number, "draws": Number, "points": Number}
+]
+
+Do not include markdown formatting like \`\`\`json. Return ONLY the raw valid JSON array.`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+  console.log(`   🔍 AI Search: Fetching standings for ${league} via Gemini + Google Search...`);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 2048,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gemini ${response.status}: ${text.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+  const parsed = parseJsonArrayFromText(rawText);
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Parsed standings array is empty or invalid');
+  }
+
+  return parsed.map(item => ({
+    team: String(item.team || item.name || item.player || 'Unknown'),
+    wins: Number(item.wins ?? item.w ?? 0),
+    losses: Number(item.losses ?? item.l ?? 0),
+    draws: Number(item.draws ?? item.d ?? 0),
+    points: Number(item.points ?? item.pts ?? 0),
+  }));
+}
+
+// ── Standings Endpoint ──
+app.get('/api/sports/standings/:league', async (req, res) => {
+  const league = req.params.league;
+  const validLeagues = ['football', 'cricket', 'nba', 'tennis', 'f1'];
+
+  if (!validLeagues.includes(league)) {
+    return res.status(400).json({ error: `Invalid league: ${league}. Use: ${validLeagues.join(', ')}` });
+  }
+
+  if (isStandingsCacheValid(league)) {
+    console.log(`   📦 Standings Cache HIT for ${league}`);
+    return res.json(standingsCache[league].data);
+  }
+
+  try {
+    const data = await fetchStandingsViaGemini(league);
+    standingsCache[league] = { data, timestamp: Date.now() };
+    console.log(`   ✅ Standings fetched and cached for ${league}`);
+    return res.json(data);
+  } catch (err) {
+    console.warn(`   ⚠️ Standings fetch failed for ${league}, using mock fallback. Reason:`, err.message);
+    const fallbackData = MOCK_STANDINGS[league] || [];
+    return res.json(fallbackData);
+  }
 });
 
 // ── Fan Zone: Persistent match cheers ──
@@ -1192,6 +1936,173 @@ app.post('/api/oracle/:matchId/prediction', (req, res) => {
 
   broadcastRealtime({ type: 'oracle_update', matchId: pool.matchId, pool });
   res.json(pool);
+});
+
+// ============================================
+// FAN ENGAGEMENT ENDPOINTS
+// ============================================
+
+// ── Tier badge helper ──
+const TIER_BADGES = [
+  { threshold: 5000, name: '💎 Diamond Fan' },
+  { threshold: 2500, name: '🥇 Gold Fan' },
+  { threshold: 1000, name: '🥈 Silver Fan' },
+  { threshold: 500,  name: '🥉 Bronze Fan' },
+];
+
+function checkAndAwardTierBadges(user) {
+  const newBadges = [];
+  for (const tier of TIER_BADGES) {
+    if (user.fanPoints >= tier.threshold) {
+      if (!user.badges.find(b => b.name === tier.name)) {
+        user.badges.push({ name: tier.name, earnedAt: Date.now() });
+        newBadges.push(tier.name);
+      }
+    }
+  }
+  return newBadges;
+}
+
+// ── Award FanPoints ──
+app.post('/api/fanpoints/award', (req, res) => {
+  const { username, points, reason } = req.body;
+  if (!username || !points) return res.status(400).json({ error: 'username and points required' });
+
+  const user = findUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.fanPoints = (user.fanPoints || 0) + Number(points);
+  const newBadges = checkAndAwardTierBadges(user);
+
+  console.log(`   🪙 FanPoints: +${points} to ${username} (${reason}) → total: ${user.fanPoints}`);
+
+  const { password: _, ...userSafe } = user;
+  res.json({ user: userSafe, newBadges, totalPoints: user.fanPoints });
+});
+
+// ── Leaderboard ──
+app.get('/api/leaderboard', (req, res) => {
+  const window = req.query.window || 'alltime';
+  const today = new Date().toISOString().split('T')[0];
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  let filtered = users.filter(u => {
+    if (window === 'today') return u.lastLoginDate === today;
+    if (window === 'week') return u.lastLoginDate && u.lastLoginDate >= weekAgo;
+    return true;
+  });
+
+  const ranked = filtered
+    .sort((a, b) => (b.fanPoints || 0) - (a.fanPoints || 0))
+    .slice(0, 50)
+    .map((u, i) => ({
+      rank: i + 1,
+      username: u.username,
+      fanPoints: u.fanPoints || 0,
+      badges: u.badges || [],
+      avatar: u.avatar || '🦁',
+      favoriteSports: u.preferences?.favoriteSports || [],
+      streak: u.streak || 0,
+    }));
+
+  res.json({ leaderboard: ranked, window });
+});
+
+// ── Follow / Unfollow ──
+app.post('/api/follow', (req, res) => {
+  const { follower, following } = req.body;
+  const followerUser = findUser(follower);
+  const followingUser = findUser(following);
+  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
+
+  if (!followerUser.following) followerUser.following = [];
+  if (!followingUser.followers) followingUser.followers = [];
+
+  if (!followerUser.following.includes(following)) {
+    followerUser.following.push(following);
+    followingUser.followers.push(follower);
+  }
+  res.json({ success: true, following: followerUser.following });
+});
+
+app.delete('/api/follow', (req, res) => {
+  const { follower, following } = req.body;
+  const followerUser = findUser(follower);
+  const followingUser = findUser(following);
+  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
+
+  followerUser.following = (followerUser.following || []).filter(u => u !== following);
+  followingUser.followers = (followingUser.followers || []).filter(u => u !== follower);
+  res.json({ success: true });
+});
+
+// ── Post Activity ──
+app.post('/api/activity', (req, res) => {
+  const { username, type, data } = req.body;
+  const user = findUser(username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!user.activityLog) user.activityLog = [];
+  const item = { id: Date.now(), type, data, timestamp: Date.now() };
+  user.activityLog.unshift(item);
+  if (user.activityLog.length > 50) user.activityLog = user.activityLog.slice(0, 50);
+
+  // Increment trending counter for the sport
+  if (data?.sport) {
+    incrementTrending(data.sport);
+  }
+
+  // Broadcast to WebSocket followers
+  broadcastRealtime({ type: 'activity', username, item });
+  res.json({ success: true, item });
+});
+
+// ── Activity Feed (from followed users) ──
+app.get('/api/activity-feed/:username', (req, res) => {
+  const user = findUser(req.params.username);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const following = user.following || [];
+  const feed = [];
+
+  for (const followedName of following) {
+    const followedUser = findUser(followedName);
+    if (followedUser?.activityLog) {
+      followedUser.activityLog.slice(0, 10).forEach(item => {
+        feed.push({ ...item, username: followedName, avatar: followedUser.avatar || '🦁' });
+      });
+    }
+  }
+
+  feed.sort((a, b) => b.timestamp - a.timestamp);
+  res.json({ feed: feed.slice(0, 30) });
+});
+
+app.get('/api/trending', (req, res) => {
+  const now = Date.now();
+  const SPORT_META = {
+    cricket:  { label: 'Cricket',  icon: '🏏' },
+    football: { label: 'Football', icon: '⚽' },
+    nba:      { label: 'NBA',      icon: '🏀' },
+    tennis:   { label: 'Tennis',   icon: '🎾' },
+    f1:       { label: 'F1',       icon: '🏎️' },
+  };
+
+  const active = Object.entries(trendingCounters)
+    .filter(([, v]) => now - v.lastReset <= TRENDING_WINDOW_MS)
+    .map(([sport, v]) => ({ sport, count: v.count, ...SPORT_META[sport] }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+
+  if (active.length === 0) {
+    return res.json({ trending: [
+      { sport: 'cricket',  label: 'Cricket',  icon: '🏏', count: 0 },
+      { sport: 'football', label: 'Football', icon: '⚽', count: 0 },
+      { sport: 'nba',      label: 'NBA',      icon: '🏀', count: 0 },
+    ]});
+  }
+
+  res.json({ trending: active });
 });
 
 // ============================================

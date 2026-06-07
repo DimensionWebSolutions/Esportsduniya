@@ -6,323 +6,357 @@ import { fetchLiveMatches, buildMatchContext, fetchMomentumAnalysis } from '../s
 import { createMatchCard } from '../components/MatchCard.js';
 import { createMomentumEngine, drawMomentumGraph, animateProbBars, updateMomentumEngine, showMomentumLoading } from '../components/MomentumEngine.js';
 import { createAINarrative, initAINarrative } from '../components/AINarrative.js';
+import { createDailyChallenges } from '../components/DailyChallenges.js';
+import { createHighlightsReel } from '../components/HighlightsReel.js';
+import { createTrendingBar } from '../components/TrendingBar.js';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+const ACTIVITY_LABELS = {
+  points: 'earned points in',
+  cheer: 'cheered for',
+  prediction: 'predicted on',
+  share: 'shared',
+  badge: 'earned a badge',
+};
 
 export function createDashboard(gsap) {
-    // Notification state
-    let lastScores = {};
-    let notifications = JSON.parse(localStorage.getItem('esd_notifications') || '[]');
-    // Notification dropdown UI
-    function renderNotificationDropdown() {
-        let dropdown = document.getElementById('notif-dropdown');
-        if (!dropdown) {
-            dropdown = document.createElement('div');
-            dropdown.id = 'notif-dropdown';
-            dropdown.style.cssText = 'position:fixed;top:54px;right:22px;z-index:1200;background:rgba(20,20,30,0.98);color:#fff;border-radius:10px;box-shadow:0 4px 24px #0003;padding:12px 0;min-width:260px;max-width:340px;max-height:60vh;overflow-y:auto;display:none;';
-            document.body.appendChild(dropdown);
-        }
-        dropdown.innerHTML = `<div style='font-weight:700;padding:8px 18px 6px 18px;border-bottom:1px solid #333;'>Notifications</div>` +
-            (notifications.length === 0 ? `<div style='padding:18px;color:#aaa;text-align:center;'>No notifications yet.</div>` :
-                notifications.slice(-10).reverse().map(n => `<div style='padding:10px 18px;border-bottom:1px solid #222;font-size:1em;'><span style='font-weight:600;'>${n.title}</span><br><span style='font-size:0.95em;color:#aaa;'>${n.body}</span><br><span style='font-size:0.8em;color:#666;'>${n.time}</span></div>`).join(''));
-    }
-    // Bell click toggles dropdown
-    setTimeout(() => {
-        const bell = document.getElementById('notif-bell');
-        if (bell) {
-            bell.addEventListener('click', (e) => {
-                e.stopPropagation();
-                renderNotificationDropdown();
-                const dd = document.getElementById('notif-dropdown');
-                if (dd) dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
-            });
-            document.addEventListener('click', (e) => {
-                const dd = document.getElementById('notif-dropdown');
-                if (dd && dd.style.display === 'block' && !bell.contains(e.target)) dd.style.display = 'none';
-            });
-        }
-    }, 0);
-    const page = document.createElement('div');
-    page.className = 'page-enter';
-    page.id = 'dashboard-page';
+  // ── Notification state ──
+  let lastScores = {};
+  let notifications = JSON.parse(localStorage.getItem('esd_notifications') || '[]');
 
-    // Section Header (SEO-rich)
-    const header = document.createElement('div');
-    header.className = 'section-header';
-    header.innerHTML = `
+  function renderNotificationDropdown() {
+    let dropdown = document.getElementById('notif-dropdown');
+    if (!dropdown) {
+      dropdown = document.createElement('div');
+      dropdown.id = 'notif-dropdown';
+      dropdown.style.cssText = 'position:fixed;top:54px;right:22px;z-index:1200;background:rgba(20,20,30,0.98);color:#fff;border-radius:10px;box-shadow:0 4px 24px #0003;padding:12px 0;min-width:260px;max-width:340px;max-height:60vh;overflow-y:auto;display:none;';
+      document.body.appendChild(dropdown);
+    }
+    dropdown.innerHTML = `<div style='font-weight:700;padding:8px 18px 6px 18px;border-bottom:1px solid #333;'>Notifications</div>` +
+      (notifications.length === 0
+        ? `<div style='padding:18px;color:#aaa;text-align:center;'>No notifications yet.</div>`
+        : notifications.slice(-10).reverse().map(n =>
+            `<div style='padding:10px 18px;border-bottom:1px solid #222;font-size:1em;'>
+              <span style='font-weight:600;'>${n.title}</span><br>
+              <span style='font-size:0.95em;color:#aaa;'>${n.body}</span><br>
+              <span style='font-size:0.8em;color:#666;'>${n.time}</span>
+            </div>`).join(''));
+  }
+
+  setTimeout(() => {
+    const bell = document.getElementById('notif-bell');
+    if (bell) {
+      bell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        renderNotificationDropdown();
+        const dd = document.getElementById('notif-dropdown');
+        if (dd) dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+      });
+      document.addEventListener('click', (e) => {
+        const dd = document.getElementById('notif-dropdown');
+        if (dd && dd.style.display === 'block' && !bell.contains(e.target)) dd.style.display = 'none';
+      });
+    }
+  }, 0);
+
+  // ── Page container ──
+  const page = document.createElement('div');
+  page.className = 'page-enter';
+  page.id = 'dashboard-page';
+
+  // ── Header ──
+  const header = document.createElement('div');
+  header.className = 'section-header';
+  header.innerHTML = `
     <h1><span class="accent-dot" aria-hidden="true"></span>Live Sports Scores</h1>
     <p>Real-time live scores for Cricket, Football, NBA, Tennis & F1 — powered by AI-driven internet search.</p>
   `;
-    page.appendChild(header);
+  page.appendChild(header);
 
-    // Sport Filter Tabs
-    const tabs = document.createElement('div');
-    tabs.className = 'sport-tabs';
-    tabs.id = 'sport-tabs';
-    tabs.innerHTML = SPORTS.map((sport, i) => `
-    <button class="sport-tab ${i === 0 ? 'active' : ''}" data-sport="${sport.id}">
-      ${sport.icon} ${sport.label}
-    </button>
-  `).join('');
-    page.appendChild(tabs);
+  // ── Trending Bar ──
+  page.appendChild(createTrendingBar((sport) => { location.hash = sport; }));
 
-    // Last Updated indicator
-    const lastUpdated = document.createElement('div');
-    lastUpdated.className = 'last-updated';
-    lastUpdated.id = 'last-updated';
-    lastUpdated.innerHTML = '<span class="live-indicator" aria-hidden="true"></span> <span>Connecting to live scores...</span>';
-    page.appendChild(lastUpdated);
+  // ── View Tabs: Live Scores | Following Feed ──
+  const viewTabs = document.createElement('div');
+  viewTabs.className = 'view-tabs';
+  viewTabs.innerHTML = `
+    <button class="view-tab active" data-view="live">📊 Live Scores</button>
+    <button class="view-tab" data-view="feed">👥 Following Feed</button>
+  `;
+  page.appendChild(viewTabs);
 
-    // Loading indicator (skeleton cards)
-    const loader = document.createElement('div');
-    loader.id = 'cards-loader';
-    loader.className = 'cards-grid';
-    loader.innerHTML = Array(6).fill('<div class="skeleton skeleton-card"></div>').join('');
-    page.appendChild(loader);
+  // ── Live Scores section ──
+  const liveSection = document.createElement('div');
+  liveSection.id = 'live-section';
 
-    // Cards Grid
-    const grid = document.createElement('div');
-    grid.className = 'cards-grid';
-    grid.id = 'cards-grid';
-    grid.style.display = 'none';
-    page.appendChild(grid);
+  const tabs = document.createElement('div');
+  tabs.className = 'sport-tabs';
+  tabs.id = 'sport-tabs';
+  tabs.innerHTML = SPORTS.map((sport, i) =>
+    `<button class="sport-tab ${i === 0 ? 'active' : ''}" data-sport="${sport.id}">${sport.icon} ${sport.label}</button>`
+  ).join('');
+  liveSection.appendChild(tabs);
 
-    // Render match cards (now async)
-    async function renderCards(sportFilter) {
-        // Import notification helper
-        const { sendNotification } = await import('../components/NotificationHelper.js');
-        const loaderEl = document.getElementById('cards-loader');
-        const gridEl = document.getElementById('cards-grid');
+  const lastUpdated = document.createElement('div');
+  lastUpdated.className = 'last-updated';
+  lastUpdated.id = 'last-updated';
+  lastUpdated.innerHTML = '<span class="live-indicator" aria-hidden="true"></span> <span>Connecting to live scores...</span>';
+  liveSection.appendChild(lastUpdated);
 
-        if (loaderEl) loaderEl.style.display = 'block';
-        if (gridEl) { gridEl.style.display = 'none'; gridEl.innerHTML = ''; }
+  const loader = document.createElement('div');
+  loader.id = 'cards-loader';
+  loader.className = 'cards-grid';
+  loader.innerHTML = Array(6).fill('<div class="skeleton skeleton-card"></div>').join('');
+  liveSection.appendChild(loader);
 
-        try {
-            // Fetch real or mock data
-            const matches = await fetchLiveMatches(sportFilter);
+  const grid = document.createElement('div');
+  grid.className = 'cards-grid';
+  grid.id = 'cards-grid';
+  grid.style.display = 'none';
+  liveSection.appendChild(grid);
 
-            // Detect key events (goals, wickets, etc.) and notify
-            matches.forEach(match => {
-            const id = match.id;
-            let key = `${match.sport}_${id}`;
-            let prev = lastScores[key];
-            let currA = match.teamA?.score;
-            let currB = match.teamB?.score;
-            // Only notify if previous exists and score changed
-            if (prev && (currA !== prev.a || currB !== prev.b)) {
-                let diffA = parseInt(currA) - parseInt(prev.a);
-                let diffB = parseInt(currB) - parseInt(prev.b);
-                let event = null;
-                if (diffA > 0) event = `${match.teamA?.name} scored!`;
-                if (diffB > 0) event = `${match.teamB?.name} scored!`;
-                if (event) {
-                    const title = `${event} (${match.league})`;
-                    const body = `${match.teamA?.name} ${currA} - ${currB} ${match.teamB?.name}`;
-                    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    sendNotification(title, { body });
-                    notifications.push({ title, body, time });
-                    if (notifications.length > 20) notifications = notifications.slice(-20);
-                    localStorage.setItem('esd_notifications', JSON.stringify(notifications));
-                    renderNotificationDropdown();
-                }
-            }
-            lastScores[key] = { a: currA, b: currB };
-            });
+  page.appendChild(liveSection);
 
-            // Update "last updated" time
-            const updatedEl = document.getElementById('last-updated');
-            if (updatedEl) {
-            const now = new Date();
-            const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const source = matches.length > 0 && matches[0]?.source === 'ai-search'
-                ? '🔍 AI Search'
-                : (matches.length > 0 && matches[0]?.source === 'demo' ? '🎮 Demo Data' : '📡 API');
-            updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>Last updated: ${time} · ${matches.length} matches · via ${source}</span>`;
-            }
+  // ── Following Feed section ──
+  const feedSection = document.createElement('div');
+  feedSection.id = 'feed-section';
+  feedSection.style.display = 'none';
+  page.appendChild(feedSection);
 
-            if (loaderEl) loaderEl.style.display = 'none';
-            if (gridEl) gridEl.style.display = '';
+  // ── Daily Challenges ──
+  page.appendChild(createDailyChallenges());
 
-            if (!gridEl) return;
+  // ── Highlights Reel ──
+  const highlightsEl = createHighlightsReel();
+  highlightsEl.style.marginTop = 'var(--space-6)';
+  page.appendChild(highlightsEl);
 
-            if (matches.length === 0) {
-            gridEl.innerHTML = `
-        <div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
-          <div style="font-size:var(--text-3xl);margin-bottom:var(--space-4)">🏟️</div>
-          <p>No live matches right now.</p>
-          <p style="font-size:var(--text-sm);margin-top:var(--space-2);margin-bottom:var(--space-6)">The API is connected but returned 0 live games.</p>
-          
-          <button id="load-mock-btn" style="
-            background:rgba(255,255,255,0.1);
-            border:1px solid rgba(255,255,255,0.2);
-            padding:8px 16px;
-            border-radius:20px;
-            color:var(--text-primary);
-            font-size:var(--text-sm);
-            cursor:pointer;
-            transition: all 0.2s ease;
-          " onmouseover="this.style.background='rgba(57,255,20,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
-            Show Mock Data (Demo Mode)
-          </button>
-        </div>
-      `;
+  // ── renderCards ──
+  async function renderCards(sportFilter) {
+    const { sendNotification } = await import('../components/NotificationHelper.js');
+    const loaderEl = document.getElementById('cards-loader');
+    const gridEl = document.getElementById('cards-grid');
 
-            // Add click handler for the button
-            setTimeout(() => {
-                const btn = document.getElementById('load-mock-btn');
-                if (btn) {
-                    btn.addEventListener('click', async () => {
-                        const m = await import('../data/mockData.js');
-                        const mock = sportFilter === 'all' ? m.LIVE_MATCHES : m.LIVE_MATCHES.filter(x => x.sport === sportFilter);
+    if (loaderEl) loaderEl.style.display = 'block';
+    if (gridEl) { gridEl.style.display = 'none'; gridEl.innerHTML = ''; }
 
-                        gridEl.innerHTML = '';
-                        mock.forEach(match => {
-                            const card = createMatchCard(match, (m) => {
-                                // Update the AI narrative context when a card is clicked
-                                const contextStr = buildMatchContext(m);
-                                window.__currentMatchContext = contextStr;
-                                const engineEl = document.getElementById('momentum-engine');
-                                if (engineEl) engineEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                loadMomentumForMatch(contextStr);
-                            });
-                            gridEl.appendChild(card);
-                        });
+    try {
+      const matches = await fetchLiveMatches(sportFilter);
 
-                        // Default context
-                        if (mock.length > 0) window.__currentMatchContext = buildMatchContext(mock[0]);
-                    });
-                }
-            }, 0);
-            return;
-            }
-
-            matches.forEach(match => {
-            const card = createMatchCard(match, (m) => {
-                // Navigate to match detail page
-                location.hash = `match/${m.id}`;
-            });
-            gridEl.appendChild(card);
-            });
-
-            // Always update match context and load momentum for the first match
-            if (matches.length > 0) {
-            window.__currentMatchContext = buildMatchContext(matches[0]);
-            loadMomentumForMatch(window.__currentMatchContext);
-            }
-
-            // GSAP stagger animation
-            if (gsap && gridEl.children.length > 0) {
-            gsap.fromTo(
-                gridEl.children,
-                { opacity: 0, y: 30, scale: 0.96 },
-                {
-                    opacity: 1,
-                    y: 0,
-                    scale: 1,
-                    duration: 0.5,
-                    stagger: 0.08,
-                    ease: 'power3.out',
-                    clearProps: 'transform',
-                }
-            );
-            }
-        } catch (err) {
-            console.error('Dashboard render failed:', err);
-            if (loaderEl) loaderEl.style.display = 'none';
-            if (gridEl) {
-                gridEl.style.display = '';
-                gridEl.innerHTML = `
-                    <div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
-                        Live scores could not be rendered. Please retry.
-                    </div>
-                `;
-            }
+      matches.forEach(match => {
+        const key = `${match.sport}_${match.id}`;
+        const prev = lastScores[key];
+        const currA = match.teamA?.score;
+        const currB = match.teamB?.score;
+        if (prev && (currA !== prev.a || currB !== prev.b)) {
+          let event = null;
+          if (parseInt(currA) > parseInt(prev.a)) event = `${match.teamA?.name} scored!`;
+          if (parseInt(currB) > parseInt(prev.b)) event = `${match.teamB?.name} scored!`;
+          if (event) {
+            const title = `${event} (${match.league})`;
+            const body = `${match.teamA?.name} ${currA} - ${currB} ${match.teamB?.name}`;
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            sendNotification(title, { body });
+            notifications.push({ title, body, time });
+            if (notifications.length > 20) notifications = notifications.slice(-20);
+            localStorage.setItem('esd_notifications', JSON.stringify(notifications));
+            renderNotificationDropdown();
+          }
         }
+        lastScores[key] = { a: currA, b: currB };
+      });
+
+      const updatedEl = document.getElementById('last-updated');
+      if (updatedEl) {
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const source = matches[0]?.source === 'ai-search' ? '🔍 AI Search' : matches[0]?.source === 'demo' ? '🎮 Demo' : '📡 API';
+        updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>Last updated: ${time} · ${matches.length} matches · via ${source}</span>`;
+      }
+
+      if (loaderEl) loaderEl.style.display = 'none';
+      if (gridEl) gridEl.style.display = '';
+      if (!gridEl) return;
+
+      if (matches.length === 0) {
+        gridEl.innerHTML = `
+          <div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
+            <div style="font-size:var(--text-3xl);margin-bottom:var(--space-4)">🏟️</div>
+            <p>No live matches right now.</p>
+            <p style="font-size:var(--text-sm);margin-top:var(--space-2);margin-bottom:var(--space-6)">The API is connected but returned 0 live games.</p>
+            <button id="load-mock-btn" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);padding:8px 16px;border-radius:20px;color:var(--text-primary);font-size:var(--text-sm);cursor:pointer;">
+              Show Demo Data
+            </button>
+          </div>`;
+        setTimeout(() => {
+          document.getElementById('load-mock-btn')?.addEventListener('click', async () => {
+            const m = await import('../data/mockData.js');
+            const mock = sportFilter === 'all' ? m.LIVE_MATCHES : m.LIVE_MATCHES.filter(x => x.sport === sportFilter);
+            gridEl.innerHTML = '';
+            mock.forEach(match => gridEl.appendChild(createMatchCard(match, (m) => { location.hash = `match/${m.id}`; })));
+            if (mock.length > 0) window.__currentMatchContext = buildMatchContext(mock[0]);
+          });
+        }, 0);
+        return;
+      }
+
+      matches.forEach(match => {
+        gridEl.appendChild(createMatchCard(match, (m) => { location.hash = `match/${m.id}`; }));
+      });
+
+      if (matches.length > 0) {
+        window.__currentMatchContext = buildMatchContext(matches[0]);
+        loadMomentumForMatch(window.__currentMatchContext);
+      }
+
+      if (gsap && gridEl.children.length > 0) {
+        gsap.fromTo(gridEl.children,
+          { opacity: 0, y: 30, scale: 0.96 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.5, stagger: 0.08, ease: 'power3.out', clearProps: 'transform' }
+        );
+      }
+    } catch (err) {
+      console.error('Dashboard render failed:', err);
+      if (loaderEl) loaderEl.style.display = 'none';
+      if (gridEl) {
+        gridEl.style.display = '';
+        gridEl.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">Live scores could not be rendered. Please retry.</div>`;
+      }
     }
+  }
 
-    // ── Load real-time momentum data for a match ──
-    async function loadMomentumForMatch(matchContext) {
-        try {
-            showMomentumLoading();
-            console.log('⚡ Fetching real-time momentum analysis...');
-            const data = await fetchMomentumAnalysis(matchContext);
-            updateMomentumEngine(data);
-            console.log(`⚡ Momentum updated: ${data.teamA} ${data.probA}% vs ${data.teamB} ${data.probB}% (source: ${data.source})`);
-        } catch (err) {
-            console.error('⚡ Momentum fetch error:', err);
-            // Fall back to drawing mock data
-            drawMomentumGraph();
-            animateProbBars();
-        }
+  // ── Momentum loader ──
+  async function loadMomentumForMatch(matchContext) {
+    try {
+      showMomentumLoading();
+      const data = await fetchMomentumAnalysis(matchContext);
+      updateMomentumEngine(data);
+    } catch (err) {
+      console.error('Momentum fetch error:', err);
+      drawMomentumGraph();
+      animateProbBars();
     }
+  }
 
-    // Initial render
-    renderCards('all');
+  // ── Following Feed renderer ──
+  async function renderFollowingFeed() {
+    const storedUser = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!storedUser?.username) {
+      feedSection.innerHTML = '<div class="following-feed-empty">Please log in to see your feed.</div>';
+      return;
+    }
+    feedSection.innerHTML = '<div class="following-feed-loading"><div class="pulse-dot"></div> Loading feed...</div>';
+    try {
+      const res = await fetch(`${API_BASE}/api/activity-feed/${storedUser.username}`);
+      const data = await res.json();
+      const items = data.feed || [];
 
-    // Tab click handler
-    tabs.addEventListener('click', (e) => {
-        const tab = e.target.closest('.sport-tab');
-        if (!tab) return;
+      if (items.length === 0) {
+        feedSection.innerHTML = `
+          <div class="following-feed-empty">
+            <div style="font-size:2.5rem;margin-bottom:var(--space-3)">👥</div>
+            <p>You're not following anyone yet.</p>
+            <p style="font-size:var(--text-sm);color:var(--text-muted);margin-top:var(--space-2)">Discover fans on the Leaderboard and follow them!</p>
+            <button class="feed-lb-btn" style="margin-top:var(--space-4);padding:var(--space-2) var(--space-5);background:var(--accent-neon);color:#000;border:none;border-radius:var(--radius-full);font-weight:700;cursor:pointer;">🏆 Go to Leaderboard</button>
+          </div>`;
+        feedSection.querySelector('.feed-lb-btn')?.addEventListener('click', () => { location.hash = 'leaderboard'; });
+        return;
+      }
 
-        tabs.querySelectorAll('.sport-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        renderCards(tab.dataset.sport);
-    });
+      feedSection.innerHTML = `
+        <div class="following-feed">
+          ${items.map(item => `
+            <div class="activity-item">
+              <span class="activity-avatar">${item.avatar || '🦁'}</span>
+              <div class="activity-body">
+                <span class="activity-username">${item.username}</span>
+                <span class="activity-action"> ${ACTIVITY_LABELS[item.type] || item.type} </span>
+                <span class="activity-match">${item.data?.match || item.data?.reason || item.data?.sport || ''}</span>
+              </div>
+              <span class="activity-time">${timeAgo(item.timestamp)}</span>
+            </div>`).join('')}
+        </div>`;
+    } catch {
+      feedSection.innerHTML = '<div class="following-feed-empty">Could not load feed. Try again later.</div>';
+    }
+  }
 
-    // Momentum Engine
-    const engine = createMomentumEngine();
-    page.appendChild(engine);
+  // ── Initial render ──
+  renderCards('all');
 
-    // AI Narrative
-    const narrative = createAINarrative();
-    page.appendChild(narrative);
-    narrative.style.marginTop = 'var(--space-6)';
+  // ── Sport tab clicks ──
+  tabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.sport-tab');
+    if (!tab) return;
+    tabs.querySelectorAll('.sport-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    renderCards(tab.dataset.sport);
+  });
 
-    // Auto-refresh disabled as per user request
+  // ── View tab switching ──
+  viewTabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.view-tab');
+    if (!tab) return;
+    viewTabs.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    if (tab.dataset.view === 'live') {
+      liveSection.style.display = '';
+      feedSection.style.display = 'none';
+    } else {
+      liveSection.style.display = 'none';
+      feedSection.style.display = '';
+      renderFollowingFeed();
+    }
+  });
 
+  // ── Momentum Engine ──
+  const engine = createMomentumEngine();
+  page.appendChild(engine);
 
-    return page;
+  // ── AI Narrative ──
+  const narrative = createAINarrative();
+  narrative.style.marginTop = 'var(--space-6)';
+  page.appendChild(narrative);
+
+  return page;
 }
 
-/**
- * Called after the dashboard is added to DOM
- */
 export function initDashboard() {
-    // Don't draw mock data — momentum will be loaded dynamically
-    // by renderCards() which auto-fetches real data for the first match.
-    // Just show loading state until real data arrives.
-    showMomentumLoading();
-    initAINarrative();
-
-    // Simulate live score updates (visual flash effect)
-    // Track intervals for cleanup
-    if (!window.__dashboardIntervals) window.__dashboardIntervals = [];
-    startScoreSimulation();
+  showMomentumLoading();
+  initAINarrative();
+  if (!window.__dashboardIntervals) window.__dashboardIntervals = [];
+  startScoreSimulation();
 }
 
 function startScoreSimulation() {
-    const scoreElements = document.querySelectorAll('.team-score');
-
-    const interval = setInterval(() => {
-        scoreElements.forEach(el => {
-            if (Math.random() > 0.7) {
-                el.style.color = 'var(--accent-neon)';
-                el.style.transform = 'scale(1.15)';
-                el.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
-                setTimeout(() => {
-                    el.style.color = '';
-                    el.style.transform = '';
-                }, 800);
-            }
-        });
-    }, 5000);
-    if (window.__dashboardIntervals) {
-        window.__dashboardIntervals.push(interval);
-    }
+  const scoreElements = document.querySelectorAll('.team-score');
+  const interval = setInterval(() => {
+    scoreElements.forEach(el => {
+      if (Math.random() > 0.7) {
+        el.style.color = 'var(--accent-neon)';
+        el.style.transform = 'scale(1.15)';
+        el.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        setTimeout(() => { el.style.color = ''; el.style.transform = ''; }, 800);
+      }
+    });
+  }, 5000);
+  if (window.__dashboardIntervals) window.__dashboardIntervals.push(interval);
 }
 
-// Cleanup intervals when dashboard is removed
 window.addEventListener('hashchange', () => {
-    if (!document.getElementById('dashboard-page') && window.__dashboardIntervals) {
-        window.__dashboardIntervals.forEach(clearInterval);
-        window.__dashboardIntervals = [];
-    }
+  if (!document.getElementById('dashboard-page') && window.__dashboardIntervals) {
+    window.__dashboardIntervals.forEach(clearInterval);
+    window.__dashboardIntervals = [];
+  }
 });
