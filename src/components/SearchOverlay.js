@@ -16,6 +16,7 @@ let onNavigateCallback = null;
 // Pages & sport shortcuts for search
 const SEARCH_ITEMS = [
     { type: 'page', id: 'dashboard', label: 'Live Dashboard', icon: '📊', desc: 'Real-time scores across all sports' },
+    { type: 'page', id: 'fifa', label: 'FIFA 2026', icon: '🌍', desc: 'FIFA World Cup 2026 live scores, standings, and predictions' },
     { type: 'page', id: 'timemachine', label: 'Time Machine', icon: '⏳', desc: 'Relive legendary sports moments' },
     { type: 'page', id: 'crowdpulse', label: 'Crowd Pulse', icon: '🌍', desc: 'Global fan activity heatmap' },
     ...SPORTS.filter(s => s.id !== 'all').map(s => ({

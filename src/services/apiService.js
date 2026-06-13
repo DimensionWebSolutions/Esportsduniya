@@ -1,43 +1,14 @@
-// Standings mock data (replace with real API if available)
-const MOCK_STANDINGS = {
-    football: [
-        { team: 'Man City', wins: 24, losses: 3, draws: 5, points: 77 },
-        { team: 'Arsenal', wins: 23, losses: 4, draws: 5, points: 74 },
-        { team: 'Liverpool', wins: 22, losses: 5, draws: 5, points: 71 },
-    ],
-    cricket: [
-        { team: 'MI', wins: 9, losses: 5, draws: 0, points: 18 },
-        { team: 'CSK', wins: 8, losses: 6, draws: 0, points: 16 },
-        { team: 'RCB', wins: 7, losses: 7, draws: 0, points: 14 },
-    ],
-    nba: [
-        { team: 'Lakers', wins: 52, losses: 30, draws: 0, points: 104 },
-        { team: 'Celtics', wins: 50, losses: 32, draws: 0, points: 100 },
-        { team: 'Warriors', wins: 48, losses: 34, draws: 0, points: 96 },
-    ],
-    tennis: [
-        { team: 'Djokovic', wins: 38, losses: 4, draws: 0, points: 9000 },
-        { team: 'Alcaraz', wins: 35, losses: 7, draws: 0, points: 8500 },
-        { team: 'Sinner', wins: 33, losses: 8, draws: 0, points: 8200 },
-    ],
-    f1: [
-        { team: 'Verstappen', wins: 10, losses: 2, draws: 0, points: 250 },
-        { team: 'Hamilton', wins: 7, losses: 5, draws: 0, points: 200 },
-        { team: 'Leclerc', wins: 5, losses: 7, draws: 0, points: 180 },
-    ],
-};
-
 export async function fetchStandings(league) {
     if (!apiAvailable) {
-        return MOCK_STANDINGS[league] || [];
+        throw new Error('Sports standings API service is unavailable.');
     }
     try {
         const res = await fetch(`${API_BASE}/api/sports/standings/${league}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.json();
     } catch (err) {
-        console.warn(`[apiService] Standings fetch failed for ${league}, using mock fallback:`, err);
-        return MOCK_STANDINGS[league] || [];
+        console.warn(`[apiService] Standings fetch failed for ${league}:`, err);
+        throw err;
     }
 }
 /* ============================================
@@ -46,10 +17,9 @@ export async function fetchStandings(league) {
    Fetches from the backend proxy (/api/*).
    PRIMARY: AI-powered scores (Gemini + Google Search)
    FALLBACK 1: RapidAPI endpoints (if configured)
-   FALLBACK 2: Mock data (offline mode)
    ============================================ */
 
-import { LIVE_MATCHES, AI_NARRATIVES, MOMENTUM_DATA } from '../data/mockData.js';
+import { AI_NARRATIVES, MOMENTUM_DATA } from '../data/mockData.js';
 
 // In production, VITE_API_URL is set to your Railway backend URL.
 // In development, it's empty so Vite's proxy handles /api/* → localhost:3001
@@ -58,11 +28,6 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 let apiAvailable = null; // null = unchecked, true/false after check
 let aiScoresAvailable = false; // whether AI-powered scores are ready
 let lastAllAiMatches = null;
-
-function getDemoMatches(sport = 'all') {
-    const matches = sport === 'all' ? LIVE_MATCHES : LIVE_MATCHES.filter(m => m.sport === sport);
-    return matches.map(match => ({ ...match, source: 'demo' }));
-}
 
 /**
  * Check if the backend API server is running and has keys configured
@@ -315,28 +280,22 @@ export async function fetchUpcomingMatches(sport) {
  * Fetch live matches across all sports.
  * PRIMARY: AI-powered scores (Gemini + Google Search)
  * FALLBACK 1: RapidAPI endpoints
- * FALLBACK 2: Mock data
  */
 export async function fetchLiveMatches(sport = 'all') {
     if (!apiAvailable) {
-        console.log('📋 Using mock match data');
-        return getDemoMatches(sport);
+        throw new Error('Scores service unavailable. API health check failed.');
     }
 
     if (!aiScoresAvailable) {
-        console.log('📋 AI live scores are not configured; using demo match data');
-        return getDemoMatches(sport);
+        throw new Error('AI live scores are not configured on the backend.');
     }
 
     // ── PRIMARY: Try AI-powered scores ──
-    if (aiScoresAvailable) {
-        const aiMatches = await fetchAIScores(sport);
-        if (aiMatches && aiMatches.length > 0) {
-            return aiMatches;
-        }
-        // AI returned empty or failed — fall through to RapidAPI
-        console.log('📋 AI returned no matches, trying RapidAPI fallback...');
+    const aiMatches = await fetchAIScores(sport);
+    if (aiMatches && aiMatches.length > 0) {
+        return aiMatches;
     }
+    console.log('📋 AI returned no matches from primary source. Trying RapidAPI fallback...');
 
     // ── FALLBACK 1: RapidAPI endpoints ──
     const results = [];
@@ -364,20 +323,13 @@ export async function fetchLiveMatches(sport = 'all') {
             if (Array.isArray(list)) results.push(...list.map(normalizeCricketMatch));
         }
 
-        // If RapidAPI got results, return them
         if (results.length > 0) return results;
 
-        // Try upcoming as a last resort
-        console.log('📋 No live matches from RapidAPI. Fetching upcoming...');
-        const upcoming = await fetchUpcomingMatches(sport);
-        if (upcoming.length > 0) return upcoming;
-
-        console.log('📋 No live or upcoming matches returned; using demo data');
-        return getDemoMatches(sport);
-
+        console.error('No live or upcoming matches returned from configured sources.');
+        throw new Error('No live matches available from configured data sources.');
     } catch (err) {
         console.error('Error fetching matches:', err);
-        return getDemoMatches(sport);
+        throw err;
     }
 }
 

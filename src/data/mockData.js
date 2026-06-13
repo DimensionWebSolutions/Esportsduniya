@@ -331,6 +331,7 @@ export const NAV_ITEMS = [
     { id: 'divider1', type: 'divider' },
     { id: 'cricket', icon: '🏏', label: 'Cricket' },
     { id: 'football', icon: '⚽', label: 'Football' },
+    { id: 'fifa', icon: '🌍', label: 'FIFA 2026' },
     { id: 'nba', icon: '🏀', label: 'NBA' },
     { id: 'tennis', icon: '🎾', label: 'Tennis' },
     { id: 'f1', icon: '🏎️', label: 'F1' },

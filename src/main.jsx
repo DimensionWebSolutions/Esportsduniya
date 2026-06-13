@@ -17,6 +17,7 @@ import './styles/features.css';
 import './styles/login.css';
 import './styles/profile.css';
 import './styles/engagement.css';
+import './styles/fifa.css';
 
 // Components
 import { createDynamicIsland, startTickerUpdates, updateTickerData } from './components/DynamicIsland.js';
@@ -32,6 +33,7 @@ import { createCrowdPulse, initCrowdPulse } from './pages/CrowdPulse.js';
 import { createMatchDetail } from './pages/MatchDetail.js';
 import { createStandingsPage } from './pages/Standings.js';
 import { createLeaderboard } from './pages/Leaderboard.js';
+import { createFifaPage } from './pages/FIFA.js';
 import ProfilePage from './pages/Profile.jsx';
 
 // API Service
@@ -210,6 +212,10 @@ function createMobileNav() {
                 <span class="mobile-nav-icon">📊</span>
                 <span>Live</span>
             </button>
+            <button class="mobile-nav-item" data-page="fifa">
+                <span class="mobile-nav-icon">🌍</span>
+                <span>FIFA</span>
+            </button>
             <button class="mobile-nav-item" data-page="leaderboard">
                 <span class="mobile-nav-icon">🏆</span>
                 <span>Ranks</span>
@@ -300,6 +306,7 @@ function navigateTo(pageId) {
         dashboard: 'Live Sports Scores — Esportsduniya',
         cricket: 'Cricket Live Score — IPL, ICC, T20 | Esportsduniya',
         football: 'Football Live Score — Premier League, La Liga | Esportsduniya',
+        fifa: 'FIFA World Cup 2026 — Live Scores, Standings, Predictions | Esportsduniya',
         nba: 'NBA Live Score — Basketball Scores | Esportsduniya',
         tennis: 'Tennis Live Score — ATP, WTA, Grand Slams | Esportsduniya',
         f1: 'F1 Live Results — Formula 1 | Esportsduniya',
@@ -315,6 +322,10 @@ function navigateTo(pageId) {
         duration: 0.2,
         ease: 'power2.in',
         onComplete: () => {
+            if (window.__pageIntervals && window.__pageIntervals.length) {
+                window.__pageIntervals.forEach(interval => clearInterval(interval));
+                window.__pageIntervals = [];
+            }
             main.innerHTML = '';
             let page;
 
@@ -346,6 +357,10 @@ function navigateTo(pageId) {
                 case 'profile':
                     // Profile/settings page
                     main.appendChild(ProfilePage());
+                    break;
+                case 'fifa':
+                    page = createFifaPage(gsap);
+                    main.appendChild(page);
                     break;
                 case 'dashboard':
                 default:

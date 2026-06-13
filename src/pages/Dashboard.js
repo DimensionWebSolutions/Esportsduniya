@@ -181,7 +181,7 @@ export function createDashboard(gsap) {
       const updatedEl = document.getElementById('last-updated');
       if (updatedEl) {
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const source = matches[0]?.source === 'ai-search' ? '🔍 AI Search' : matches[0]?.source === 'demo' ? '🎮 Demo' : '📡 API';
+        const source = matches[0]?.source === 'ai-search' ? '🔍 AI Search' : '📡 API';
         updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>Last updated: ${time} · ${matches.length} matches · via ${source}</span>`;
       }
 
@@ -194,20 +194,8 @@ export function createDashboard(gsap) {
           <div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
             <div style="font-size:var(--text-3xl);margin-bottom:var(--space-4)">🏟️</div>
             <p>No live matches right now.</p>
-            <p style="font-size:var(--text-sm);margin-top:var(--space-2);margin-bottom:var(--space-6)">The API is connected but returned 0 live games.</p>
-            <button id="load-mock-btn" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);padding:8px 16px;border-radius:20px;color:var(--text-primary);font-size:var(--text-sm);cursor:pointer;">
-              Show Demo Data
-            </button>
+            <p style="font-size:var(--text-sm);margin-top:var(--space-2);margin-bottom:var(--space-6)">The scores service is connected but returned 0 live games. Check back soon.</p>
           </div>`;
-        setTimeout(() => {
-          document.getElementById('load-mock-btn')?.addEventListener('click', async () => {
-            const m = await import('../data/mockData.js');
-            const mock = sportFilter === 'all' ? m.LIVE_MATCHES : m.LIVE_MATCHES.filter(x => x.sport === sportFilter);
-            gridEl.innerHTML = '';
-            mock.forEach(match => gridEl.appendChild(createMatchCard(match, (m) => { location.hash = `match/${m.id}`; })));
-            if (mock.length > 0) window.__currentMatchContext = buildMatchContext(mock[0]);
-          });
-        }, 0);
         return;
       }
 
