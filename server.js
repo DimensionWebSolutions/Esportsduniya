@@ -546,100 +546,6 @@ app.get('/api/predictions/:username', (req, res) => {
   });
 });
 
-// ── Leaderboard ──
-app.get('/api/leaderboard', (req, res) => {
-  const { window: win = 'alltime' } = req.query;
-  const today = new Date().toISOString().split('T')[0];
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-
-  let filtered = users;
-  if (win === 'today') {
-    filtered = users.filter(u => u.lastLoginDate === today);
-  } else if (win === 'week') {
-    filtered = users.filter(u => u.lastLoginDate && u.lastLoginDate >= weekAgo);
-  }
-
-  const sorted = filtered
-    .map(u => ({
-      username: u.username,
-      fanPoints: u.fanPoints || 0,
-      badges: u.badges || [],
-      streak: u.streak || 0,
-      avatar: u.avatar || '🦁',
-      favoriteSports: u.preferences?.favoriteSports || [],
-    }))
-    .sort((a, b) => b.fanPoints - a.fanPoints)
-    .slice(0, 50);
-
-  res.json(sorted);
-});
-
-// ── Follow ──
-app.post('/api/follow', (req, res) => {
-  const { follower, following } = req.body;
-  const followerUser = findUser(follower);
-  const followingUser = findUser(following);
-  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
-
-  if (!followerUser.following) followerUser.following = [];
-  if (!followingUser.followers) followingUser.followers = [];
-
-  if (!followerUser.following.includes(following)) followerUser.following.push(following);
-  if (!followingUser.followers.includes(follower)) followingUser.followers.push(follower);
-
-  res.json({ message: 'Followed', following: followerUser.following });
-});
-
-app.delete('/api/follow', (req, res) => {
-  const { follower, following } = req.body;
-  const followerUser = findUser(follower);
-  const followingUser = findUser(following);
-  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
-
-  followerUser.following = (followerUser.following || []).filter(u => u !== following);
-  followingUser.followers = (followingUser.followers || []).filter(u => u !== follower);
-
-  res.json({ message: 'Unfollowed', following: followerUser.following });
-});
-
-// ── Activity Feed ──
-app.get('/api/activity-feed/:username', (req, res) => {
-  const user = findUser(req.params.username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  const following = user.following || [];
-  const feed = [];
-
-  for (const followedName of following) {
-    const followedUser = findUser(followedName);
-    if (followedUser && followedUser.activityLog) {
-      for (const item of followedUser.activityLog) {
-        feed.push({ username: followedName, avatar: followedUser.avatar || '🦁', ...item });
-      }
-    }
-  }
-
-  feed.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  res.json(feed.slice(0, 20));
-});
-
-// ── Post Activity ──
-app.post('/api/activity', (req, res) => {
-  const { username, type, data } = req.body;
-  const user = findUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  if (!user.activityLog) user.activityLog = [];
-  const item = { type, data, timestamp: new Date().toISOString() };
-  user.activityLog.push(item);
-  if (user.activityLog.length > 100) user.activityLog = user.activityLog.slice(-100);
-
-  // Increment trending counter for sport
-  if (data?.sport) incrementTrending(data.sport);
-
-  res.json({ message: 'Activity logged', item });
-});
-
 // ── Trending ──
 app.get('/api/trending', (req, res) => {
   const SPORT_META = {
@@ -2164,20 +2070,6 @@ app.get('/api/activity-feed/:username', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Could not fetch activity feed.' });
   }
-});
-  const feed = [];
-
-  for (const followedName of following) {
-    const followedUser = findUser(followedName);
-    if (followedUser?.activityLog) {
-      followedUser.activityLog.slice(0, 10).forEach(item => {
-        feed.push({ ...item, username: followedName, avatar: followedUser.avatar || '🦁' });
-      });
-    }
-  }
-
-  feed.sort((a, b) => b.timestamp - a.timestamp);
-  res.json({ feed: feed.slice(0, 30) });
 });
 
 app.get('/api/trending', (req, res) => {
