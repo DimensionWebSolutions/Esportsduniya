@@ -1431,6 +1431,72 @@ async function callGemini(prompt) {
   return data.candidates[0].content.parts[0].text;
 }
 
+function parseJsonObjectFromText(rawText) {
+  let text = (rawText || '').trim();
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) text = fenceMatch[1].trim();
+  const jsonMatch = text.match(/\{[\s\S]*\}$/);
+  if (jsonMatch) text = jsonMatch[0];
+  return JSON.parse(text);
+}
+
+app.post('/api/ai/fifa-prediction', async (req, res) => {
+  const { match, teamAStats, teamBStats } = req.body;
+
+  if (!match || !teamAStats || !teamBStats) {
+    return res.status(400).json({ error: 'Missing required prediction payload. Provide match, teamAStats, and teamBStats.' });
+  }
+
+  if (!hasGemini) {
+    return res.status(503).json({ error: 'No Gemini API key configured' });
+  }
+
+  const prompt = `You are a football analyst. Given these two teams' World Cup 2026 stats, provide: (1) predicted winner with confidence %, (2) predicted scoreline, (3) 3 key factors deciding this match, (4) one bold prediction. Return as JSON only: { winner, confidence, scoreline, factors[], boldPick }.`;
+  const body = {
+    contents: [{ parts: [{ text: `${prompt}\n\nTeam A stats:\n${JSON.stringify(teamAStats, null, 2)}\n\nTeam B stats:\n${JSON.stringify(teamBStats, null, 2)}\n\nMatch context:\n${JSON.stringify({
+      home: match.homeTeam.name,
+      away: match.awayTeam.name,
+      date: match.utcDate,
+      venue: match.venue,
+      competition: match.competition,
+      stage: match.stage,
+      status: match.status,
+    }, null, 2)}\n\nReturn JSON only.` }] }],
+    generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+  };
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Gemini ${response.status}: ${text}`);
+    }
+
+    const data = await response.json();
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const parsed = parseJsonObjectFromText(rawText);
+
+    const prediction = {
+      winner: parsed.winner || `${match.homeTeam.name} / ${match.awayTeam.name}`,
+      confidence: Number(parsed.confidence || 0),
+      scoreline: parsed.scoreline || '-',
+      factors: Array.isArray(parsed.factors) ? parsed.factors : [],
+      boldPick: parsed.boldPick || '',
+    };
+
+    res.json({ prediction });
+  } catch (err) {
+    console.error('   ❌ AI FIFA Prediction error:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ── AI Tactical Analysis ──
 app.post('/api/ai/tactics', async (req, res) => {
   const { matchContext } = req.body;
