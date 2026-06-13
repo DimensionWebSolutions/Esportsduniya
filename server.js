@@ -11,6 +11,9 @@ import cors from 'cors';
 import { config } from 'dotenv';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 
 config(); // Load .env
 
@@ -18,10 +21,89 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const JWT_SECRET = process.env.JWT_SECRET || 'esd-dev-secret-change-in-production';
+const SALT_ROUNDS = 10;
 
-// In-memory user store (for demonstration)
-// In a real app, use a database (MongoDB, PostgreSQL, etc.)
-const users = [];
+// ============================================
+// DATABASE — MongoDB with in-memory fallback
+// ============================================
+const MONGODB_URI = process.env.MONGODB_URI;
+let useDatabase = false;
+
+// ── Mongoose User Schema ──
+const userSchema = new mongoose.Schema({
+  username:      { type: String, required: true, unique: true, trim: true },
+  password:      { type: String, required: true },
+  avatar:        { type: String, default: '🦁' },
+  preferences:   { type: mongoose.Schema.Types.Mixed, default: { theme: 'dark', notifications: true, favoriteSports: [] } },
+  fanPoints:     { type: Number, default: 0 },
+  badges:        { type: Array, default: [] },
+  streak:        { type: Number, default: 0 },
+  lastLoginDate: { type: String, default: null },
+  cheeredMatches:{ type: Array, default: [] },
+  sharedMatches: { type: Array, default: [] },
+  following:     { type: Array, default: [] },
+  followers:     { type: Array, default: [] },
+  activityLog:   { type: Array, default: [] },
+  matchHistory:  { type: Array, default: [] },
+  achievements:  { type: Array, default: [] },
+}, { timestamps: true });
+
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+
+if (MONGODB_URI) {
+  mongoose.connect(MONGODB_URI)
+    .then(() => {
+      useDatabase = true;
+      console.log('   ✅ MongoDB: Connected');
+    })
+    .catch(err => {
+      console.warn('   ⚠️  MongoDB: Connection failed — falling back to in-memory store');
+      console.warn('   ', err.message);
+    });
+} else {
+  console.log('   ℹ️  MongoDB: No MONGODB_URI set — using in-memory store (data resets on restart)');
+}
+
+// ── DB helper wrappers (unified API for both modes) ──
+async function dbFindUser(username) {
+  if (useDatabase) return User.findOne({ username }).lean();
+  return users.find(u => u.username === username) || null;
+}
+
+async function dbCreateUser(userData) {
+  if (useDatabase) {
+    const user = new User(userData);
+    await user.save();
+    return user.toObject();
+  }
+  users.push(userData);
+  return userData;
+}
+
+async function dbUpdateUser(username, updates) {
+  if (useDatabase) {
+    return User.findOneAndUpdate({ username }, { $set: updates }, { new: true }).lean();
+  }
+  const idx = users.findIndex(u => u.username === username);
+  if (idx === -1) return null;
+  Object.assign(users[idx], updates);
+  return users[idx];
+}
+
+async function dbGetAllUsers() {
+  if (useDatabase) return User.find({}).lean();
+  return users;
+}
+
+function safeUser(user) {
+  if (!user) return null;
+  const { password, __v, ...safe } = user;
+  return safe;
+}
+
+// ── Fan Engagement: Activity counters for trending ──
+const users = []; // In-memory fallback (used when MONGODB_URI is not set)
 const fanZoneState = new Map();
 const predictionState = new Map();
 
@@ -48,7 +130,7 @@ let highlightsCache = null;
 let highlightsCacheTime = 0;
 const HIGHLIGHTS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-// Helper to find a user
+// Helper to find a user (in-memory fallback only)
 const findUser = (username) => users.find(u => u.username === username);
 
 function getFanZone(matchId) {
@@ -82,133 +164,166 @@ function broadcastRealtime(payload) {
 }
 
 // Register Endpoint
-app.post('/api/register', (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
-  if (findUser(username)) {
-    return res.status(409).json({ error: 'Username already exists.' });
+  if (username.length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters.' });
   }
-  
-  const newUser = { 
-    id: Date.now().toString(), 
-    username, 
-    password, // In production, HASH this password!
-    preferences: {
-      theme: 'dark',
-      notifications: true,
-      favoriteSports: []
-    },
-    matchHistory: [],
-    achievements: [],
-    predictions: [],
-    // Fan engagement fields
-    fanPoints: 0,
-    badges: [],
-    streak: 0,
-    lastLoginDate: null,
-    cheeredMatches: [],
-    sharedMatches: [],
-    following: [],
-    followers: [],
-    activityLog: [],
-    avatar: '🦁',
-  };
-  
-  users.push(newUser);
-  console.log(`   👤 New User Registered: ${username}`);
-  
-  // Return user without password
-  const { password: _, ...userSafe } = newUser;
-  res.status(201).json({ message: 'Registration successful!', user: userSafe });
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+
+  try {
+    const existing = await dbFindUser(username);
+    if (existing) return res.status(409).json({ error: 'Username already exists.' });
+
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+    const newUser = {
+      id: Date.now().toString(),
+      username,
+      password: hashedPassword,
+      avatar: '🦁',
+      preferences: { theme: 'dark', notifications: true, favoriteSports: [] },
+      matchHistory: [],
+      achievements: [],
+      predictions: [],
+      fanPoints: 0,
+      badges: [],
+      streak: 0,
+      lastLoginDate: null,
+      cheeredMatches: [],
+      sharedMatches: [],
+      following: [],
+      followers: [],
+      activityLog: [],
+    };
+
+    const created = await dbCreateUser(newUser);
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '30d' });
+    console.log(`   👤 New User Registered: ${username}`);
+    res.status(201).json({ message: 'Registration successful!', user: safeUser(created), token });
+  } catch (err) {
+    console.error('Register error:', err.message);
+    res.status(500).json({ error: 'Registration failed. Please try again.' });
+  }
 });
 
 // Login Endpoint
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = findUser(username);
-  
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: 'Invalid username or password.' });
-  }
 
-  // ── Streak logic ──
-  const today = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  if (user.lastLoginDate === yesterday) {
-    user.streak = (user.streak || 0) + 1;
-  } else if (user.lastLoginDate !== today) {
-    user.streak = 1;
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(401).json({ error: 'Invalid username or password.' });
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) return res.status(401).json({ error: 'Invalid username or password.' });
+
+    // ── Streak logic ──
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    let newStreak = user.streak || 0;
+    if (user.lastLoginDate === yesterday) {
+      newStreak += 1;
+    } else if (user.lastLoginDate !== today) {
+      newStreak = 1;
+    }
+
+    // Award streak badge at multiples of 7
+    const badges = user.badges || [];
+    if (newStreak > 0 && newStreak % 7 === 0) {
+      const badgeName = `🔥 ${newStreak}-Day Streak`;
+      if (!badges.find(b => b.name === badgeName)) {
+        badges.push({ name: badgeName, earnedAt: Date.now() });
+      }
+    }
+
+    await dbUpdateUser(username, { streak: newStreak, lastLoginDate: today, badges });
+
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '30d' });
+    const updatedUser = await dbFindUser(username);
+    console.log(`   👤 User Logged In: ${username} (streak: ${newStreak})`);
+    res.json({ message: 'Login successful!', user: safeUser(updatedUser), token });
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(500).json({ error: 'Login failed. Please try again.' });
   }
-  user.lastLoginDate = today;
-  
-  console.log(`   👤 User Logged In: ${username} (streak: ${user.streak})`);
-  const { password: _, ...userSafe } = user;
-  res.json({ message: 'Login successful!', user: userSafe });
 });
 
 // Get Profile Endpoint
-app.get('/api/profile/:username', (req, res) => {
-  const user = findUser(req.params.username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  
-  const { password: _, ...userSafe } = user;
-  res.json(userSafe);
+app.get('/api/profile/:username', async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(safeUser(user));
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch profile.' });
+  }
 });
 
 // Update Profile Endpoint
-app.put('/api/profile/:username', (req, res) => {
+app.put('/api/profile/:username', async (req, res) => {
   const { username } = req.params;
-  const userIndex = users.findIndex(u => u.username === username);
-  
-  if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
-  
-  // Update allowed fields
-  const { preferences, matchHistory, achievements, avatar, following, followers } = req.body;
-  
-  if (preferences) users[userIndex].preferences = { ...users[userIndex].preferences, ...preferences };
-  if (matchHistory) users[userIndex].matchHistory = matchHistory;
-  if (achievements) users[userIndex].achievements = achievements;
-  if (avatar !== undefined) users[userIndex].avatar = avatar;
-  if (following !== undefined) users[userIndex].following = following;
-  if (followers !== undefined) users[userIndex].followers = followers;
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const { password: _, ...userSafe } = users[userIndex];
-  res.json({ message: 'Profile updated', user: userSafe });
+    const { preferences, matchHistory, achievements, avatar, following, followers } = req.body;
+    const updates = {};
+    if (preferences) updates.preferences = { ...(user.preferences || {}), ...preferences };
+    if (matchHistory) updates.matchHistory = matchHistory;
+    if (achievements) updates.achievements = achievements;
+    if (avatar !== undefined) updates.avatar = avatar;
+    if (following !== undefined) updates.following = following;
+    if (followers !== undefined) updates.followers = followers;
+
+    const updated = await dbUpdateUser(username, updates);
+    res.json({ message: 'Profile updated', user: safeUser(updated) });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not update profile.' });
+  }
 });
 
 // ── FanPoints Award ──
-app.post('/api/fanpoints/award', (req, res) => {
+app.post('/api/fanpoints/award', async (req, res) => {
   const { username, points, reason } = req.body;
   if (!username || !points) return res.status(400).json({ error: 'username and points required' });
 
-  const user = findUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  user.fanPoints = (user.fanPoints || 0) + Number(points);
+    const newPoints = (user.fanPoints || 0) + Number(points);
+    const badges = [...(user.badges || [])];
 
-  // Check tier badges
-  const tiers = [
-    { threshold: 500, badge: '🥉 Bronze Fan' },
-    { threshold: 1000, badge: '🥈 Silver Fan' },
-    { threshold: 2500, badge: '🥇 Gold Fan' },
-    { threshold: 5000, badge: '💎 Diamond Fan' },
-  ];
-  for (const tier of tiers) {
-    if (user.fanPoints >= tier.threshold && !user.badges.includes(tier.badge)) {
-      user.badges.push(tier.badge);
-      console.log(`   🏅 Badge awarded to ${username}: ${tier.badge}`);
+    const tiers = [
+      { threshold: 500,  name: '🥉 Bronze Fan' },
+      { threshold: 1000, name: '🥈 Silver Fan' },
+      { threshold: 2500, name: '🥇 Gold Fan' },
+      { threshold: 5000, name: '💎 Diamond Fan' },
+    ];
+    const newBadges = [];
+    for (const tier of tiers) {
+      if (newPoints >= tier.threshold && !badges.find(b => b.name === tier.name)) {
+        badges.push({ name: tier.name, earnedAt: Date.now() });
+        newBadges.push(tier.name);
+      }
     }
+
+    const activityLog = [...(user.activityLog || [])];
+    activityLog.unshift({ type: 'points', data: { points: Number(points), reason }, timestamp: Date.now() });
+
+    await dbUpdateUser(username, { fanPoints: newPoints, badges, activityLog: activityLog.slice(0, 50) });
+    const updated = await dbFindUser(username);
+    console.log(`   🪙 FanPoints: +${points} to ${username} (${reason}) → total: ${newPoints}`);
+    res.json({ message: 'Points awarded', user: safeUser(updated), newBadges, totalPoints: newPoints });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not award points.' });
   }
-
-  // Log activity
-  if (!user.activityLog) user.activityLog = [];
-  user.activityLog.push({ type: 'points', data: { points, reason }, timestamp: new Date().toISOString() });
-
-  const { password: _, ...userSafe } = user;
-  console.log(`   🪙 FanPoints: +${points} to ${username} (${reason}) → total: ${user.fanPoints}`);
-  res.json({ message: 'Points awarded', user: userSafe });
 });
 
 // ── Predictions: Save a new prediction ──
@@ -1942,127 +2057,114 @@ app.post('/api/oracle/:matchId/prediction', (req, res) => {
 // FAN ENGAGEMENT ENDPOINTS
 // ============================================
 
-// ── Tier badge helper ──
-const TIER_BADGES = [
-  { threshold: 5000, name: '💎 Diamond Fan' },
-  { threshold: 2500, name: '🥇 Gold Fan' },
-  { threshold: 1000, name: '🥈 Silver Fan' },
-  { threshold: 500,  name: '🥉 Bronze Fan' },
-];
-
-function checkAndAwardTierBadges(user) {
-  const newBadges = [];
-  for (const tier of TIER_BADGES) {
-    if (user.fanPoints >= tier.threshold) {
-      if (!user.badges.find(b => b.name === tier.name)) {
-        user.badges.push({ name: tier.name, earnedAt: Date.now() });
-        newBadges.push(tier.name);
-      }
-    }
-  }
-  return newBadges;
-}
-
-// ── Award FanPoints ──
-app.post('/api/fanpoints/award', (req, res) => {
-  const { username, points, reason } = req.body;
-  if (!username || !points) return res.status(400).json({ error: 'username and points required' });
-
-  const user = findUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  user.fanPoints = (user.fanPoints || 0) + Number(points);
-  const newBadges = checkAndAwardTierBadges(user);
-
-  console.log(`   🪙 FanPoints: +${points} to ${username} (${reason}) → total: ${user.fanPoints}`);
-
-  const { password: _, ...userSafe } = user;
-  res.json({ user: userSafe, newBadges, totalPoints: user.fanPoints });
-});
-
 // ── Leaderboard ──
-app.get('/api/leaderboard', (req, res) => {
+app.get('/api/leaderboard', async (req, res) => {
   const window = req.query.window || 'alltime';
   const today = new Date().toISOString().split('T')[0];
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-  let filtered = users.filter(u => {
-    if (window === 'today') return u.lastLoginDate === today;
-    if (window === 'week') return u.lastLoginDate && u.lastLoginDate >= weekAgo;
-    return true;
-  });
-
-  const ranked = filtered
-    .sort((a, b) => (b.fanPoints || 0) - (a.fanPoints || 0))
-    .slice(0, 50)
-    .map((u, i) => ({
-      rank: i + 1,
-      username: u.username,
-      fanPoints: u.fanPoints || 0,
-      badges: u.badges || [],
-      avatar: u.avatar || '🦁',
-      favoriteSports: u.preferences?.favoriteSports || [],
-      streak: u.streak || 0,
-    }));
-
-  res.json({ leaderboard: ranked, window });
+  try {
+    let allUsers = await dbGetAllUsers();
+    let filtered = allUsers.filter(u => {
+      if (window === 'today') return u.lastLoginDate === today;
+      if (window === 'week') return u.lastLoginDate && u.lastLoginDate >= weekAgo;
+      return true;
+    });
+    const ranked = filtered
+      .sort((a, b) => (b.fanPoints || 0) - (a.fanPoints || 0))
+      .slice(0, 50)
+      .map((u, i) => ({
+        rank: i + 1,
+        username: u.username,
+        fanPoints: u.fanPoints || 0,
+        badges: u.badges || [],
+        avatar: u.avatar || '🦁',
+        favoriteSports: u.preferences?.favoriteSports || [],
+        streak: u.streak || 0,
+      }));
+    res.json({ leaderboard: ranked, window });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch leaderboard.' });
+  }
 });
 
 // ── Follow / Unfollow ──
-app.post('/api/follow', (req, res) => {
+app.post('/api/follow', async (req, res) => {
   const { follower, following } = req.body;
-  const followerUser = findUser(follower);
-  const followingUser = findUser(following);
-  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
+  try {
+    const followerUser = await dbFindUser(follower);
+    const followingUser = await dbFindUser(following);
+    if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
 
-  if (!followerUser.following) followerUser.following = [];
-  if (!followingUser.followers) followingUser.followers = [];
-
-  if (!followerUser.following.includes(following)) {
-    followerUser.following.push(following);
-    followingUser.followers.push(follower);
+    const followerList = followerUser.following || [];
+    if (!followerList.includes(following)) {
+      await dbUpdateUser(follower, { following: [...followerList, following] });
+      await dbUpdateUser(following, { followers: [...(followingUser.followers || []), follower] });
+    }
+    const updated = await dbFindUser(follower);
+    res.json({ success: true, following: updated.following || [] });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not follow user.' });
   }
-  res.json({ success: true, following: followerUser.following });
 });
 
-app.delete('/api/follow', (req, res) => {
+app.delete('/api/follow', async (req, res) => {
   const { follower, following } = req.body;
-  const followerUser = findUser(follower);
-  const followingUser = findUser(following);
-  if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
+  try {
+    const followerUser = await dbFindUser(follower);
+    const followingUser = await dbFindUser(following);
+    if (!followerUser || !followingUser) return res.status(404).json({ error: 'User not found' });
 
-  followerUser.following = (followerUser.following || []).filter(u => u !== following);
-  followingUser.followers = (followingUser.followers || []).filter(u => u !== follower);
-  res.json({ success: true });
+    await dbUpdateUser(follower,  { following: (followerUser.following  || []).filter(u => u !== following) });
+    await dbUpdateUser(following, { followers: (followingUser.followers || []).filter(u => u !== follower) });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not unfollow user.' });
+  }
 });
 
 // ── Post Activity ──
-app.post('/api/activity', (req, res) => {
+app.post('/api/activity', async (req, res) => {
   const { username, type, data } = req.body;
-  const user = findUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  if (!user.activityLog) user.activityLog = [];
-  const item = { id: Date.now(), type, data, timestamp: Date.now() };
-  user.activityLog.unshift(item);
-  if (user.activityLog.length > 50) user.activityLog = user.activityLog.slice(0, 50);
+    const item = { id: Date.now(), type, data, timestamp: Date.now() };
+    const activityLog = [item, ...(user.activityLog || [])].slice(0, 50);
+    await dbUpdateUser(username, { activityLog });
 
-  // Increment trending counter for the sport
-  if (data?.sport) {
-    incrementTrending(data.sport);
+    if (data?.sport) incrementTrending(data.sport);
+    broadcastRealtime({ type: 'activity', username, item });
+    res.json({ success: true, item });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not post activity.' });
   }
-
-  // Broadcast to WebSocket followers
-  broadcastRealtime({ type: 'activity', username, item });
-  res.json({ success: true, item });
 });
 
 // ── Activity Feed (from followed users) ──
-app.get('/api/activity-feed/:username', (req, res) => {
-  const user = findUser(req.params.username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+app.get('/api/activity-feed/:username', async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const following = user.following || [];
+    const following = user.following || [];
+    const feed = [];
+
+    for (const followedName of following) {
+      const followedUser = await dbFindUser(followedName);
+      if (followedUser?.activityLog) {
+        followedUser.activityLog.slice(0, 10).forEach(item => {
+          feed.push({ ...item, username: followedName, avatar: followedUser.avatar || '🦁' });
+        });
+      }
+    }
+
+    feed.sort((a, b) => b.timestamp - a.timestamp);
+    res.json({ feed: feed.slice(0, 30) });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch activity feed.' });
+  }
+});
   const feed = [];
 
   for (const followedName of following) {
