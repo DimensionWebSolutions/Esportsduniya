@@ -318,6 +318,9 @@ app.get('/api/profile/:username', async (req, res) => {
 // Update Profile Endpoint
 app.put('/api/profile/:username', verifyToken, async (req, res) => {
   const { username } = req.params;
+  if (req.user.username !== username) {
+    return res.status(403).json({ error: 'Cannot modify another user\'s profile.' });
+  }
   try {
     const user = await dbFindUser(username);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -342,6 +345,9 @@ app.put('/api/profile/:username', verifyToken, async (req, res) => {
 app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
   const { username, points, reason } = req.body;
   if (!username || !points) return res.status(400).json({ error: 'username and points required' });
+  if (req.user.username !== username) {
+    return res.status(403).json({ error: 'Cannot award points to another user.' });
+  }
 
   try {
     const user = await dbFindUser(username);
@@ -1113,29 +1119,31 @@ app.get('/api/sports/tennis/upcoming', async (req, res) => {
 // ── Cricket ──
 const CRICAPI_KEY = process.env.CRICAPI_KEY; // Set a real key at https://cricapi.com — free tier available
 app.get('/api/sports/cricket/live', async (req, res) => {
-  // If Gemini AI scores are available, skip the cricket API entirely (already covered in /api/sports/ai-scores/all)
+  // Priority 1: Real cricket API (most accurate) — only used if CRICAPI_KEY is set
+  if (CRICAPI_KEY) {
+    try {
+      const response = await fetch(`https://api.cricapi.com/v1/currentMatches?apikey=${CRICAPI_KEY}&offset=0`);
+      if (!response.ok) throw new Error(`Cricket API ${response.status}`);
+      const data = await response.json();
+      if (data.status !== 'success') throw new Error(data.reason || 'CricAPI error');
+      console.log(`   ✅ Cricket (CricAPI): ${data.data?.length || 0} matches`);
+      return res.json({ response: data.data || [], results: data.data?.length || 0, source: 'cricapi' });
+    } catch (err) {
+      console.warn(`   ⚠️ CricAPI failed (${err.message}), trying AI cache fallback...`);
+    }
+  }
+
+  // Priority 2: Gemini AI cache (already fetched by /api/sports/ai-scores/cricket)
   if (isCacheValid('cricket')) {
+    console.log('   📦 Cricket: returning AI score cache as fallback');
     return res.json({ response: aiScoresCache.cricket.data, results: aiScoresCache.cricket.data.length, source: 'ai-cache' });
   }
 
-  if (!CRICAPI_KEY) {
-    return res.status(503).json({
-      error: 'Cricket API key not configured. Set CRICAPI_KEY in .env (get a free key at https://cricapi.com)',
-      fallback: true,
-    });
-  }
-
-  try {
-    const response = await fetch(`https://api.cricapi.com/v1/currentMatches?apikey=${CRICAPI_KEY}&offset=0`);
-    if (!response.ok) throw new Error(`Cricket API ${response.status}`);
-    const data = await response.json();
-    if (data.status !== 'success') throw new Error(data.reason || 'CricAPI error');
-    console.log(`   ✅ Cricket: ${data.data?.length || 0} matches`);
-    res.json({ response: data.data || [], results: data.data?.length || 0 });
-  } catch (err) {
-    console.error('   ❌ Cricket:', err.message);
-    res.status(502).json({ error: err.message, fallback: true });
-  }
+  // No source available
+  res.status(503).json({
+    error: 'Cricket scores unavailable. Set CRICAPI_KEY in .env for reliable data, or ensure GEMINI_API_KEY is configured for AI fallback.',
+    fallback: true,
+  });
 });
 
 // ── Cricket Upcoming (Same endpoint, just filtered differently on client usually, but let's expose it) ──
@@ -2261,6 +2269,9 @@ app.delete('/api/follow', verifyToken, async (req, res) => {
 // ── Post Activity ──
 app.post('/api/activity', verifyToken, async (req, res) => {
   const { username, type, data } = req.body;
+  if (req.user.username !== username) {
+    return res.status(403).json({ error: 'Cannot post activity for another user.' });
+  }
   try {
     const user = await dbFindUser(username);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -2404,6 +2415,9 @@ app.get('/api/challenges/:username', async (req, res) => {
 app.post('/api/challenges/:username/progress', verifyToken, async (req, res) => {
   const { type } = req.body;
   if (!type) return res.status(400).json({ error: 'type required' });
+  if (req.user.username !== req.params.username) {
+    return res.status(403).json({ error: 'Cannot update challenges for another user.' });
+  }
 
   try {
     const user = await dbFindUser(req.params.username);
@@ -2610,38 +2624,71 @@ async function sendPushToUser(username, payload) {
 // OPEN GRAPH / SEO ENDPOINT
 // ============================================
 
-app.get('/api/og/:matchId', optionalAuth, (req, res) => {
-  const { matchId } = req.params;
-  const { teamA, teamB, sport, league, score } = req.query;
+// Escape any HTML special characters to prevent XSS injection in the OG page
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
 
+// Sanitise a matchId so it can safely appear in a URL attribute (alphanumeric + hyphen/underscore only)
+function sanitiseId(id) {
+  return String(id || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+}
+
+app.get('/api/og/:matchId', optionalAuth, (req, res) => {
+  const matchId = sanitiseId(req.params.matchId);
+
+  // Escape every query-param value before using it in HTML
+  const teamA  = escapeHtml(req.query.teamA);
+  const teamB  = escapeHtml(req.query.teamB);
+  const sport  = escapeHtml(req.query.sport);
+  const league = escapeHtml(req.query.league);
+  const score  = escapeHtml(req.query.score);
+
+  // Validate sport against known values so an attacker can't inject arbitrary text as the emoji lookup key
+  const VALID_SPORTS = ['cricket', 'football', 'nba', 'tennis', 'f1'];
+  const safeSport = VALID_SPORTS.includes(req.query.sport) ? req.query.sport : '';
   const sportEmojis = { cricket: '🏏', football: '⚽', nba: '🏀', tennis: '🎾', f1: '🏁' };
-  const icon = sportEmojis[sport] || '🏅';
+  const icon = sportEmojis[safeSport] || '🏅';
+
   const title = teamA && teamB
     ? `${icon} ${teamA} vs ${teamB} — Live on Esportsduniya`
     : 'Live Sports Scores — Esportsduniya';
   const description = score
-    ? `${teamA} ${score} | Live ${league || sport} scores, AI commentary & predictions — Esportsduniya.in`
-    : `Watch live ${league || sport || 'sports'} scores, get AI commentary & make Oracle predictions on Esportsduniya.in`;
+    ? `${teamA} ${score} | Live ${league || sport} scores, AI commentary &amp; predictions — Esportsduniya.in`
+    : `Watch live ${league || sport || 'sports'} scores, get AI commentary &amp; make Oracle predictions on Esportsduniya.in`;
+
+  const matchUrl = `https://www.esportsduniya.in/#match/${matchId}`;
 
   const html = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
-  <meta property="og:image" content="https://www.esportsduniya.in/favicon.svg">
-  <meta property="og:url" content="https://www.esportsduniya.in/#match/${matchId}">
+  <meta property="og:image" content="https://www.esportsduniya.in/og-cover.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="${matchUrl}">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
-  <meta http-equiv="refresh" content="0; url=https://www.esportsduniya.in/#match/${matchId}">
+  <meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png">
+  <meta http-equiv="refresh" content="0; url=${matchUrl}">
 </head>
-<body><p>Redirecting to match...</p></body>
+<body><p>Redirecting to match…</p></body>
 </html>`;
 
-  res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  // Prevent the OG page itself from being cached by social crawlers with stale data
+  res.setHeader('Cache-Control', 'no-store');
   res.send(html);
 });
 
