@@ -3,6 +3,7 @@
    Interactive Cheers & Confetti
    ============================================ */
 import confetti from 'canvas-confetti';
+import { getWebSocketUrl } from '../services/webSocketUrl.js';
 
 export function createFanZone(teamA, teamB, matchId = 'global') {
     const container = document.createElement('div');
@@ -58,8 +59,7 @@ export function initFanZone() {
     }
 
     function connectLiveUpdates() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const socket = new WebSocket(`${protocol}//${window.location.hostname}:3002`);
+        const socket = new WebSocket(getWebSocketUrl());
         socket.addEventListener('message', (event) => {
             try {
                 const message = JSON.parse(event.data);

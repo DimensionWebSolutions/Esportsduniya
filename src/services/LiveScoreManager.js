@@ -6,6 +6,8 @@
    on the page can react without re-render.
    ============================================ */
 
+import { getWebSocketUrl } from './webSocketUrl.js';
+
 const RECONNECT_DELAY_MS = 3000;
 const MAX_RECONNECT = 10;
 
@@ -16,7 +18,7 @@ let isDestroyed = false;
 
 /**
  * Call once per app session (from Dashboard.js init).
- * Connects to the same-host WebSocket server.
+ * Connects to the configured WebSocket server.
  */
 export function initLiveScoreManager() {
   if (socket && socket.readyState <= 1) return; // already open or connecting
@@ -32,11 +34,7 @@ export function destroyLiveScoreManager() {
 }
 
 function connect() {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Same host + port as the API server (Vite dev proxy routes ws:// too)
-  const host = window.location.hostname;
-  const port = window.location.port || (proto === 'wss:' ? '443' : '80');
-  const url = `${proto}//${host}:${port}`;
+  const url = getWebSocketUrl();
 
   try {
     socket = new WebSocket(url);

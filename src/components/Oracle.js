@@ -2,6 +2,7 @@
    ESPORTSDUNIYA — The Oracle Component
    Prediction Game & Streaks
    ============================================ */
+import { getWebSocketUrl } from '../services/webSocketUrl.js';
 
 export function createOracle(matchId, teamA = { name: 'Team A' }, teamB = { name: 'Team B' }) {
     const container = document.createElement('div');
@@ -170,8 +171,7 @@ export function initOracle(matchId) {
     }
 
     function connectLiveUpdates() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const socket = new WebSocket(`${protocol}//${window.location.hostname}:3002`);
+        const socket = new WebSocket(getWebSocketUrl());
         socket.addEventListener('message', (event) => {
             try {
                 const message = JSON.parse(event.data);

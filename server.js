@@ -1431,13 +1431,63 @@ async function callGemini(prompt) {
   return data.candidates[0].content.parts[0].text;
 }
 
+function extractJsonObjects(text) {
+  const objects = [];
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let start = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escape = true;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      if (!inString) {
+        inString = ch;
+      } else if (inString === ch) {
+        inString = false;
+      }
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === '}') {
+      if (depth > 0) depth -= 1;
+      if (depth === 0 && start !== -1) {
+        objects.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
 function parseJsonObjectFromText(rawText) {
   let text = (rawText || '').trim();
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) text = fenceMatch[1].trim();
   const jsonMatch = text.match(/\{[\s\S]*\}$/);
   if (jsonMatch) text = jsonMatch[0];
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    const objects = extractJsonObjects(text);
+    if (objects.length > 0) {
+      return JSON.parse(objects[0]);
+    }
+    throw new Error('Could not parse JSON object from text');
+  }
 }
 
 app.post('/api/ai/fifa-prediction', async (req, res) => {
@@ -1726,10 +1776,43 @@ function parseJsonArrayFromText(rawText) {
   const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) jsonStr = fenceMatch[1].trim();
 
+  const tryParse = (candidate) => {
+    try {
+      const parsed = JSON.parse(candidate);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
   const arrayStart = jsonStr.indexOf('[');
   const arrayEnd = jsonStr.lastIndexOf(']');
-  if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
-    jsonStr = jsonStr.slice(arrayStart, arrayEnd + 1);
+  if (arrayStart !== -1) {
+    if (arrayEnd !== -1 && arrayEnd > arrayStart) {
+      const candidate = jsonStr.slice(arrayStart, arrayEnd + 1);
+      const parsed = tryParse(candidate);
+      if (parsed) return parsed;
+    }
+
+    if (!jsonStr.endsWith(']')) {
+      const candidate = jsonStr.slice(arrayStart) + ']';
+      const parsed = tryParse(candidate);
+      if (parsed) return parsed;
+    }
+  }
+
+  const objectCandidates = extractJsonObjects(jsonStr);
+  if (objectCandidates.length > 0) {
+    const recovered = objectCandidates
+      .map((obj) => {
+        try {
+          return JSON.parse(obj);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    if (recovered.length > 0) return recovered;
   }
 
   const candidates = [
@@ -1739,9 +1822,10 @@ function parseJsonArrayFromText(rawText) {
 
   let lastError;
   for (const candidate of candidates) {
+    const parsed = tryParse(candidate);
+    if (parsed) return parsed;
     try {
-      const parsed = JSON.parse(candidate);
-      return Array.isArray(parsed) ? parsed : [];
+      JSON.parse(candidate);
     } catch (err) {
       lastError = err;
     }

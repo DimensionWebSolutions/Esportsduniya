@@ -20,6 +20,7 @@ export async function fetchStandings(league) {
    ============================================ */
 
 import { AI_NARRATIVES, MOMENTUM_DATA } from '../data/mockData.js';
+import { getWebSocketUrl } from './webSocketUrl.js';
 
 // In production, VITE_API_URL is set to your Railway backend URL.
 // In development, it's empty so Vite's proxy handles /api/* → localhost:3001
@@ -27,6 +28,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 
 let apiAvailable = null; // null = unchecked, true/false after check
 let aiScoresAvailable = false; // whether AI-powered scores are ready
+let rapidApiAvailable = false; // whether RapidAPI sports endpoints are configured
 let lastAllAiMatches = null;
 
 /**
@@ -41,14 +43,16 @@ export async function checkApiHealth() {
         const data = await res.json();
         apiAvailable = data.status === 'ok';
         aiScoresAvailable = data.apis?.aiScores === 'configured';
+        rapidApiAvailable = data.apis?.sports === 'configured';
         console.log('🔌 API Server:', apiAvailable ? 'Connected' : 'Unavailable');
         console.log('   🔍 AI Scores:', aiScoresAvailable ? 'Enabled (Gemini + Google Search)' : 'Not configured');
-        console.log('   Sports API (RapidAPI):', data.apis?.sports || 'unknown');
+        console.log('   Sports API (RapidAPI):', rapidApiAvailable ? 'Enabled' : 'Not configured');
         console.log('   AI Narrative:', data.apis?.openai || data.apis?.gemini || 'unknown');
         return data;
     } catch {
         apiAvailable = false;
         aiScoresAvailable = false;
+        rapidApiAvailable = false;
         console.log('🔌 API Server: Unavailable (using mock data)');
         return null;
     }
@@ -286,51 +290,55 @@ export async function fetchLiveMatches(sport = 'all') {
         throw new Error('Scores service unavailable. API health check failed.');
     }
 
-    if (!aiScoresAvailable) {
-        throw new Error('AI live scores are not configured on the backend.');
-    }
-
     // ── PRIMARY: Try AI-powered scores ──
-    const aiMatches = await fetchAIScores(sport);
-    if (aiMatches && aiMatches.length > 0) {
-        return aiMatches;
+    if (aiScoresAvailable) {
+        const aiMatches = await fetchAIScores(sport);
+        if (aiMatches && aiMatches.length > 0) {
+            return aiMatches;
+        }
+        console.log('📋 AI returned no matches from primary source. Trying RapidAPI fallback...');
+    } else {
+        console.log('⚠️ AI live scores are not configured. Skipping AI primary source.');
     }
-    console.log('📋 AI returned no matches from primary source. Trying RapidAPI fallback...');
 
-    // ── FALLBACK 1: RapidAPI endpoints ──
+    if (!rapidApiAvailable) {
+        throw new Error('No live scores are configured. Enable Gemini AI live scores or RapidAPI sports data on the backend.');
+    }
+
     const results = [];
 
-    try {
-        if (sport === 'all' || sport === 'football') {
-            const data = await fetchInternal('/api/sports/football/live');
-            if (Array.isArray(data)) results.push(...data.map(normalizeFootballMatch));
-        }
+    if (sport === 'all' || sport === 'football') {
+        const data = await fetchInternal('/api/sports/football/live');
+        if (Array.isArray(data) && data.length > 0) results.push(...data.map(normalizeFootballMatch));
+    }
 
-        if (sport === 'all' || sport === 'nba') {
-            const data = await fetchInternal('/api/sports/nba/live');
-            if (Array.isArray(data)) results.push(...data.map(normalizeNBAMatch));
-        }
+    if (sport === 'all' || sport === 'nba') {
+        const data = await fetchInternal('/api/sports/nba/live');
+        if (Array.isArray(data) && data.length > 0) results.push(...data.map(normalizeNBAMatch));
+    }
 
-        if (sport === 'all' || sport === 'tennis') {
-            const data = await fetchInternal('/api/sports/tennis/live');
-            if (Array.isArray(data)) results.push(...data.map(normalizeTennisMatch));
-        }
+    if (sport === 'all' || sport === 'tennis') {
+        const data = await fetchInternal('/api/sports/tennis/live');
+        if (Array.isArray(data) && data.length > 0) results.push(...data.map(normalizeTennisMatch));
+    }
 
-        if (sport === 'all' || sport === 'cricket') {
+    if (sport === 'all' || sport === 'cricket') {
+        try {
             const res = await fetch(`${API_BASE}/api/sports/cricket/live`);
             const json = await res.json();
             const list = json.response || [];
-            if (Array.isArray(list)) results.push(...list.map(normalizeCricketMatch));
+            if (Array.isArray(list) && list.length > 0) results.push(...list.map(normalizeCricketMatch));
+        } catch (err) {
+            console.warn('[apiService] Cricket live fetch failed:', err.message);
         }
-
-        if (results.length > 0) return results;
-
-        console.error('No live or upcoming matches returned from configured sources.');
-        throw new Error('No live matches available from configured data sources.');
-    } catch (err) {
-        console.error('Error fetching matches:', err);
-        throw err;
     }
+
+    if (results.length > 0) {
+        return results;
+    }
+
+    console.error('No live or upcoming matches returned from configured sources.');
+    throw new Error('No live matches available from configured data sources.');
 }
 
 // ============================================
@@ -459,15 +467,7 @@ Venue: ${match.venue}`;
 }
 
 export function connectWebSocket(onMessage) {
-    // In production, VITE_WS_URL points to the Railway backend WebSocket endpoint.
-    // In development, connect directly to localhost:3002.
-    let wsUrl;
-    if (import.meta.env.VITE_WS_URL) {
-        wsUrl = import.meta.env.VITE_WS_URL;
-    } else {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${protocol}//${window.location.hostname}:3002`;
-    }
+    const wsUrl = getWebSocketUrl();
     const socket = new WebSocket(wsUrl);
 
     if (onMessage) {
