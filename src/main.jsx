@@ -41,11 +41,18 @@ import { checkApiHealth, fetchLiveMatches } from './services/apiService.js';
 import { registerServiceWorker, startReminderChecker } from './components/NotificationHelper.js';
 import { initLiveScoreManager } from './services/LiveScoreManager.js';
 
+// Admin and Analytics pages (React)
+import AdminPanel from './pages/Admin.jsx';
+import AnalyticsPage from './pages/Analytics.jsx';
+
 // GSAP
 import { gsap } from 'gsap';
 
 /* ── State ── */
 let currentPage = 'dashboard';
+
+// Track active React root so we can unmount before navigating away
+let currentReactRoot = null;
 
 /* ── App Initialization ── */
 async function renderApp() {
@@ -99,26 +106,43 @@ async function renderApp() {
         document.body.appendChild(btn);
     }
 
-    // Notification bell
-    const existingBell = document.getElementById('notif-bell');
-    if (existingBell) existingBell.remove();
+    // Top bar: notification bell + user avatar + logout
+    const existingTopBar = document.getElementById('esd-top-bar');
+    if (existingTopBar) existingTopBar.remove();
+    const topBar = document.createElement('div');
+    topBar.id = 'esd-top-bar';
+    topBar.style.cssText = 'position:fixed;top:14px;right:16px;z-index:1000;display:flex;align-items:center;gap:10px;';
+
     const notifBell = document.createElement('button');
     notifBell.id = 'notif-bell';
     notifBell.title = 'Notifications';
     notifBell.innerHTML = '🔔';
-    notifBell.style.cssText = 'position:fixed;top:18px;right:22px;z-index:1000;font-size:1.6em;background:none;border:none;cursor:pointer;';
+    notifBell.style.cssText = 'font-size:1.4em;background:none;border:none;cursor:pointer;';
     notifBell.addEventListener('click', async () => {
         const { requestNotificationPermission } = await import('./components/NotificationHelper.js');
         const perm = await requestNotificationPermission();
-        if (perm === 'granted') {
-            notifBell.textContent = '🔔';
-        } else if (perm === 'denied') {
-            notifBell.textContent = '🚫';
-        } else {
-            notifBell.textContent = '🔕';
-        }
+        notifBell.textContent = perm === 'granted' ? '🔔' : perm === 'denied' ? '🚫' : '🔕';
     });
-    document.body.appendChild(notifBell);
+
+    const storedUserInfo = JSON.parse(localStorage.getItem('user') || '{}');
+    const userBtn = document.createElement('button');
+    userBtn.title = `Logged in as ${storedUserInfo.username || 'User'}`;
+    userBtn.innerHTML = storedUserInfo.avatar || '🦁';
+    userBtn.style.cssText = 'font-size:1.4em;background:none;border:none;cursor:pointer;';
+    userBtn.addEventListener('click', () => navigateTo('profile'));
+
+    const logoutBtn = document.createElement('button');
+    logoutBtn.title = 'Logout';
+    logoutBtn.innerHTML = '⏻';
+    logoutBtn.style.cssText = 'font-size:1.1em;background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.3);border-radius:8px;padding:4px 8px;color:#ff5050;cursor:pointer;';
+    logoutBtn.addEventListener('click', () => {
+        if (confirm('Log out of Esportsduniya?')) window.esportsLogout();
+    });
+
+    topBar.appendChild(notifBell);
+    topBar.appendChild(userBtn);
+    topBar.appendChild(logoutBtn);
+    document.body.appendChild(topBar);
 
     // 1. Dynamic score island
     const island = createDynamicIsland();
@@ -181,13 +205,32 @@ async function renderApp() {
 function initApp() {
     const app = document.getElementById('app');
     app.innerHTML = '';
-    // Render AuthGate, which will render the app only if logged in
-    // This is a minimal vanilla JS mount for AuthGate (React-style):
-    import('./components/AuthGate.jsx').then(({ default: AuthGate }) => {
-        // For a real React app, we'd use ReactDOM.render, but here, just call renderApp if "logged in"
-        // For now, just call renderApp directly (since the rest of the app is not React-based)
+
+    const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('token');
+
+    if (storedUser && storedToken) {
+        // Already logged in — go straight to the app
         renderApp();
-    });
+    } else {
+        // Not logged in — mount the React Login screen
+        mountLoginScreen(app);
+    }
+}
+
+function mountLoginScreen(appEl) {
+    appEl.innerHTML = '';
+    const loginRoot = ReactDOM.createRoot(appEl);
+
+    function handleLogin(userObj) {
+        // Unmount login, start the full app
+        loginRoot.unmount();
+        renderApp();
+    }
+
+    loginRoot.render(
+        React.createElement(AuthGate, { onLoginSuccess: handleLogin })
+    );
 }
 
 /* ── Loading Screen ── */
@@ -312,6 +355,9 @@ function navigateTo(pageId) {
         f1: 'F1 Live Results — Formula 1 | Esportsduniya',
         timemachine: 'Sports Time Machine — Relive Legendary Moments | Esportsduniya',
         crowdpulse: 'Crowd Pulse — Global Fan Activity | Esportsduniya',
+        profile: 'My Profile — Esportsduniya',
+        admin: 'Admin Panel — Esportsduniya',
+        analytics: 'Analytics — Esportsduniya',
     };
     document.title = titles[pageId] || 'Esportsduniya — Live Sports Scores & AI Insights';
 
@@ -326,9 +372,15 @@ function navigateTo(pageId) {
                 window.__pageIntervals.forEach(interval => clearInterval(interval));
                 window.__pageIntervals = [];
             }
+
+            // Unmount any active React root before clearing the DOM
+            if (currentReactRoot) {
+                currentReactRoot.unmount();
+                currentReactRoot = null;
+            }
+
             main.innerHTML = '';
             let page;
-
 
             switch (actualPage) {
                 case 'standings':
@@ -354,10 +406,35 @@ function navigateTo(pageId) {
                         initCrowdPulse(gsap);
                     });
                     break;
-                case 'profile':
-                    // Profile/settings page
-                    main.appendChild(ProfilePage());
+                case 'profile': {
+                    const container = document.createElement('div');
+                    container.id = 'profile-react-root';
+                    main.appendChild(container);
+                    currentReactRoot = ReactDOM.createRoot(container);
+                    currentReactRoot.render(React.createElement(ProfilePage));
                     break;
+                }
+                case 'admin': {
+                    const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+                    if (!storedUser?.isAdmin) {
+                        main.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--accent-cyber)"><h2>Access Denied</h2><p>Admin access only.</p></div>';
+                    } else {
+                        const container = document.createElement('div');
+                        container.id = 'admin-react-root';
+                        main.appendChild(container);
+                        currentReactRoot = ReactDOM.createRoot(container);
+                        currentReactRoot.render(React.createElement(AdminPanel));
+                    }
+                    break;
+                }
+                case 'analytics': {
+                    const container = document.createElement('div');
+                    container.id = 'analytics-react-root';
+                    main.appendChild(container);
+                    currentReactRoot = ReactDOM.createRoot(container);
+                    currentReactRoot.render(React.createElement(AnalyticsPage));
+                    break;
+                }
                 case 'fifa':
                     page = createFifaPage(gsap);
                     main.appendChild(page);
@@ -387,6 +464,23 @@ function navigateTo(pageId) {
         },
     });
 }
+
+/* ── Global Logout ── */
+window.esportsLogout = function () {
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    // Unmount any React root
+    if (currentReactRoot) {
+        currentReactRoot.unmount();
+        currentReactRoot = null;
+    }
+    // Re-mount login screen
+    const app = document.getElementById('app');
+    if (app) mountLoginScreen(app);
+};
+
+/* ── Global Navigate (used by React pages) ── */
+window.esportsNavigate = navigateTo;
 
 /* ── Boot ── */
 if (document.readyState === 'loading') {

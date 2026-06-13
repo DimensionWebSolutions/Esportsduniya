@@ -93,12 +93,16 @@ function showToast(msg) {
 
 async function awardPoints(points, reason) {
   const user = JSON.parse(localStorage.getItem('user') || 'null');
-  if (!user?.username) return;
+  const token = localStorage.getItem('token');
+  if (!user?.username || !token) return;
   const API_BASE = import.meta.env.VITE_API_URL || '';
   try {
     const res = await fetch(`${API_BASE}/api/fanpoints/award`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({ username: user.username, points, reason }),
     });
     const data = await res.json();
@@ -107,6 +111,25 @@ async function awardPoints(points, reason) {
     }
   } catch (e) {
     console.warn('FanPoints award failed:', e);
+  }
+}
+
+async function syncChallengeProgress(type) {
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  const token = localStorage.getItem('token');
+  if (!user?.username || !token) return;
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+  try {
+    await fetch(`${API_BASE}/api/challenges/${user.username}/progress`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ type }),
+    });
+  } catch (e) {
+    // Non-critical — local tracking is still valid
   }
 }
 
@@ -197,20 +220,24 @@ export function trackOracleAction() {
   const today = getToday();
   const key = `esd_oracle_count_${today}`;
   localStorage.setItem(key, String((parseInt(localStorage.getItem(key) || '0', 10)) + 1));
+  syncChallengeProgress('predict');
 }
 
 export function trackViewAction() {
   const today = getToday();
   const key = `esd_views_count_${today}`;
   localStorage.setItem(key, String((parseInt(localStorage.getItem(key) || '0', 10)) + 1));
+  syncChallengeProgress('view_match');
 }
 
 export function trackCheerAction() {
   const today = getToday();
   localStorage.setItem(`esd_cheered_${today}`, '1');
+  syncChallengeProgress('cheer');
 }
 
 export function trackShareAction() {
   const today = getToday();
   localStorage.setItem(`esd_shared_today_${today}`, '1');
+  syncChallengeProgress('share');
 }

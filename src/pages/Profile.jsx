@@ -99,9 +99,13 @@ export default function ProfilePage() {
     setMessage(''); setError('');
     if (!user?.username) { setError('User not logged in.'); return; }
     try {
+      const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE}/api/profile/${user.username}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ preferences }),
       });
       const data = await response.json();
@@ -124,8 +128,23 @@ export default function ProfilePage() {
     localStorage.setItem('esd_reminders', JSON.stringify(updated));
   };
 
+  if (!user && error) {
+    return (
+      <div className="profile-container" style={{ textAlign: 'center', padding: '3rem' }}>
+        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
+        <p>{error}</p>
+        <button
+          onClick={() => window.esportsLogout?.()}
+          style={{ marginTop: '1rem', padding: '10px 24px', borderRadius: '20px', background: 'var(--accent-cyber)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '1rem' }}
+        >
+          Go to Login
+        </button>
+      </div>
+    );
+  }
+
   if (!user) {
-    return <div className="profile-container">{error || 'Loading profile...'}</div>;
+    return <div className="profile-container" style={{ textAlign: 'center', padding: '3rem' }}>Loading profile...</div>;
   }
 
   const fanPoints = user.fanPoints || 0;
@@ -140,7 +159,16 @@ export default function ProfilePage() {
       <div className="profile-hero">
         <div className="profile-avatar-big">{user.avatar || user.preferences?.avatar || '🦁'}</div>
         <div className="profile-hero-info">
-          <h2 className="profile-username">{user.username}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <h2 className="profile-username">{user.username}</h2>
+            {user.isPremium && <span style={{ background: 'linear-gradient(90deg,#f8c300,#ff8c00)', color: '#000', padding: '2px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700 }}>💎 PREMIUM</span>}
+            <button
+              onClick={() => { if (confirm('Log out?')) window.esportsLogout?.(); }}
+              style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: '16px', background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.35)', color: '#ff6060', cursor: 'pointer', fontSize: '0.85rem' }}
+            >
+              Logout
+            </button>
+          </div>
           <div className="profile-stats-row">
             <div className="profile-stat">
               <span className="profile-stat-val">🪙 {fanPoints.toLocaleString()}</span>

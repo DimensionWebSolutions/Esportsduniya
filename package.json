@@ -24,9 +24,12 @@
     "gsap": "^3.12.5",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.1",
+    "node-cron": "^4.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.0",
+    "stripe": "^22.2.1",
+    "web-push": "^3.6.7",
     "ws": "^8.19.0"
   }
 }

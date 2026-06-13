@@ -14,6 +14,9 @@ import { createServer } from 'http';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import cron from 'node-cron';
+import webpush from 'web-push';
+import Stripe from 'stripe';
 
 config(); // Load .env
 
@@ -24,6 +27,45 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'esd-dev-secret-change-in-production';
 const SALT_ROUNDS = 10;
 
+// ── Web Push (VAPID) ──
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_EMAIL = process.env.VAPID_EMAIL || 'mailto:admin@esportsduniya.in';
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('   ✅ Web Push: VAPID configured');
+} else {
+  console.log('   ℹ️  Web Push: No VAPID keys — push notifications disabled (set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)');
+}
+
+// ── Auth Middleware ──
+function verifyToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  const token = authHeader.slice(7);
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // { username, iat, exp }
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token.' });
+  }
+}
+
+// ── Optional auth (attaches user info if token present, but doesn't block) ──
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      req.user = jwt.verify(authHeader.slice(7), JWT_SECRET);
+    } catch { /* ignore invalid token */ }
+  }
+  next();
+}
+
 // ============================================
 // DATABASE — MongoDB with in-memory fallback
 // ============================================
@@ -32,21 +74,29 @@ let useDatabase = false;
 
 // ── Mongoose User Schema ──
 const userSchema = new mongoose.Schema({
-  username:      { type: String, required: true, unique: true, trim: true },
-  password:      { type: String, required: true },
-  avatar:        { type: String, default: '🦁' },
-  preferences:   { type: mongoose.Schema.Types.Mixed, default: { theme: 'dark', notifications: true, favoriteSports: [] } },
-  fanPoints:     { type: Number, default: 0 },
-  badges:        { type: Array, default: [] },
-  streak:        { type: Number, default: 0 },
-  lastLoginDate: { type: String, default: null },
-  cheeredMatches:{ type: Array, default: [] },
-  sharedMatches: { type: Array, default: [] },
-  following:     { type: Array, default: [] },
-  followers:     { type: Array, default: [] },
-  activityLog:   { type: Array, default: [] },
-  matchHistory:  { type: Array, default: [] },
-  achievements:  { type: Array, default: [] },
+  username:           { type: String, required: true, unique: true, trim: true },
+  password:           { type: String, required: true },
+  avatar:             { type: String, default: '🦁' },
+  preferences:        { type: mongoose.Schema.Types.Mixed, default: { theme: 'dark', notifications: true, favoriteSports: [] } },
+  fanPoints:          { type: Number, default: 0 },
+  badges:             { type: Array, default: [] },
+  streak:             { type: Number, default: 0 },
+  lastLoginDate:      { type: String, default: null },
+  cheeredMatches:     { type: Array, default: [] },
+  sharedMatches:      { type: Array, default: [] },
+  following:          { type: Array, default: [] },
+  followers:          { type: Array, default: [] },
+  activityLog:        { type: Array, default: [] },
+  matchHistory:       { type: Array, default: [] },
+  achievements:       { type: Array, default: [] },
+  predictions:        { type: Array, default: [] },
+  isAdmin:            { type: Boolean, default: false },
+  isPremium:          { type: Boolean, default: false },
+  premiumExpiry:      { type: Date, default: null },
+  pushSubscriptions:  { type: Array, default: [] },
+  dailyChallenges:    { type: mongoose.Schema.Types.Mixed, default: null },
+  lastChallengeDate:  { type: String, default: null },
+  fantasyPicks:       { type: Array, default: [] },
 }, { timestamps: true });
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
@@ -266,7 +316,7 @@ app.get('/api/profile/:username', async (req, res) => {
 });
 
 // Update Profile Endpoint
-app.put('/api/profile/:username', async (req, res) => {
+app.put('/api/profile/:username', verifyToken, async (req, res) => {
   const { username } = req.params;
   try {
     const user = await dbFindUser(username);
@@ -289,7 +339,7 @@ app.put('/api/profile/:username', async (req, res) => {
 });
 
 // ── FanPoints Award ──
-app.post('/api/fanpoints/award', async (req, res) => {
+app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
   const { username, points, reason } = req.body;
   if (!username || !points) return res.status(400).json({ error: 'username and points required' });
 
@@ -327,54 +377,60 @@ app.post('/api/fanpoints/award', async (req, res) => {
 });
 
 // ── Predictions: Save a new prediction ──
-app.post('/api/predictions/save', (req, res) => {
+app.post('/api/predictions/save', verifyToken, async (req, res) => {
   const { username, matchId, matchLabel, sport, teamPicked, teamPickedName, wager, odds } = req.body;
   if (!username || !matchId || !teamPicked) {
     return res.status(400).json({ error: 'username, matchId, teamPicked required' });
   }
-  const user = findUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  if (!user.predictions) user.predictions = [];
-
-  // Prevent duplicate prediction for same match
-  const existing = user.predictions.find(p => String(p.matchId) === String(matchId));
-  if (existing) {
-    return res.status(409).json({ error: 'Prediction already made for this match', prediction: existing });
+  if (req.user.username !== username) {
+    return res.status(403).json({ error: 'Cannot save prediction for another user.' });
   }
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prediction = {
-    id: `pred_${Date.now()}`,
-    matchId: String(matchId),
-    matchLabel: matchLabel || 'Unknown Match',
-    sport: sport || 'unknown',
-    teamPicked,
-    teamPickedName: teamPickedName || teamPicked,
-    wager: Number(wager) || 50,
-    odds: Number(odds) || 1.8,
-    potentialWin: Math.floor((Number(wager) || 50) * (Number(odds) || 1.8)),
-    status: 'pending',   // 'pending' | 'correct' | 'incorrect'
-    outcome: null,
-    pointsResult: null,
-    createdAt: new Date().toISOString(),
-    resolvedAt: null,
-  };
+    const predictions = user.predictions || [];
 
-  user.predictions.push(prediction);
-  user.activityLog = user.activityLog || [];
-  user.activityLog.push({ type: 'prediction', data: { match: matchLabel, sport }, timestamp: prediction.createdAt });
+    const existing = predictions.find(p => String(p.matchId) === String(matchId));
+    if (existing) {
+      return res.status(409).json({ error: 'Prediction already made for this match', prediction: existing });
+    }
 
-  console.log(`   🔮 Prediction saved: ${username} picked ${teamPickedName} for ${matchLabel}`);
-  res.status(201).json({ message: 'Prediction saved', prediction });
+    const prediction = {
+      id: `pred_${Date.now()}`,
+      matchId: String(matchId),
+      matchLabel: matchLabel || 'Unknown Match',
+      sport: sport || 'unknown',
+      teamPicked,
+      teamPickedName: teamPickedName || teamPicked,
+      wager: Number(wager) || 50,
+      odds: Number(odds) || 1.8,
+      potentialWin: Math.floor((Number(wager) || 50) * (Number(odds) || 1.8)),
+      status: 'pending',
+      outcome: null,
+      pointsResult: null,
+      createdAt: new Date().toISOString(),
+      resolvedAt: null,
+    };
+
+    const activityItem = { type: 'prediction', data: { match: matchLabel, sport }, timestamp: prediction.createdAt };
+    const activityLog = [activityItem, ...(user.activityLog || [])].slice(0, 50);
+    await dbUpdateUser(username, { predictions: [...predictions, prediction], activityLog });
+
+    console.log(`   🔮 Prediction saved: ${username} picked ${teamPickedName} for ${matchLabel}`);
+    res.status(201).json({ message: 'Prediction saved', prediction });
+  } catch (err) {
+    console.error('Prediction save error:', err.message);
+    res.status(500).json({ error: 'Could not save prediction.' });
+  }
 });
 
-function resolveMatchPredictions(match) {
+async function resolveMatchPredictions(match) {
   if (match.status !== 'finished') return;
 
   const sport = match.sport?.toLowerCase();
   const teamA = match.teamA;
   const teamB = match.teamB;
-
   if (!teamA || !teamB) return;
 
   function parseScore(scoreStr) {
@@ -387,131 +443,136 @@ function resolveMatchPredictions(match) {
   if (sport === 'f1') {
     const pA = parseScore(teamA.score);
     const pB = parseScore(teamB.score);
-    if (pA > 0 && pB > 0) {
-      winner = pA < pB ? 'teamA' : 'teamB'; // lower rank wins in F1 driver comparisons
-    }
+    if (pA > 0 && pB > 0) winner = pA < pB ? 'teamA' : 'teamB';
   } else {
     const sA = parseScore(teamA.score);
     const sB = parseScore(teamB.score);
-    if (sA !== sB) {
-      winner = sA > sB ? 'teamA' : 'teamB';
-    }
+    if (sA !== sB) winner = sA > sB ? 'teamA' : 'teamB';
   }
-
   if (!winner) return;
 
-  users.forEach(user => {
-    if (!user.predictions) return;
+  try {
+    const allUsers = await dbGetAllUsers();
+    for (const user of allUsers) {
+      const predictions = user.predictions || [];
+      const predIdx = predictions.findIndex(p => String(p.matchId) === String(match.id) && p.status === 'pending');
+      if (predIdx === -1) continue;
 
-    const pred = user.predictions.find(p => String(p.matchId) === String(match.id) && p.status === 'pending');
-    if (!pred) return;
+      const pred = { ...predictions[predIdx] };
+      const isCorrect = pred.teamPicked === winner;
+      pred.status = isCorrect ? 'correct' : 'incorrect';
+      pred.outcome = winner;
+      pred.resolvedAt = new Date().toISOString();
 
+      let pointsDelta = 0;
+      let newFanPoints = user.fanPoints || 0;
+      const activityLog = [...(user.activityLog || [])];
+      if (isCorrect) {
+        pointsDelta = pred.potentialWin;
+        newFanPoints += pointsDelta;
+        activityLog.unshift({ type: 'points', data: { points: pointsDelta, reason: `Correct prediction: ${pred.matchLabel}` }, timestamp: pred.resolvedAt });
+      } else {
+        pointsDelta = -pred.wager;
+        newFanPoints = Math.max(0, newFanPoints + pointsDelta);
+      }
+      pred.pointsResult = pointsDelta;
+
+      const updatedPredictions = predictions.map((p, i) => i === predIdx ? pred : p);
+      const badges = [...(user.badges || [])];
+      if (isCorrect && !badges.find(b => b.name === '🔮 Oracle')) {
+        badges.push({ name: '🔮 Oracle', earnedAt: new Date().toISOString() });
+      }
+      const correctCount = updatedPredictions.filter(p => p.status === 'correct').length;
+      if (correctCount >= 5 && !badges.find(b => b.name === '🔮 Oracle Master')) {
+        badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
+      }
+
+      await dbUpdateUser(user.username, {
+        predictions: updatedPredictions,
+        fanPoints: newFanPoints,
+        badges,
+        activityLog: activityLog.slice(0, 50),
+      });
+
+      console.log(`   🔮 Auto-Resolved: ${user.username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
+      broadcastRealtime({
+        type: 'activity',
+        username: user.username,
+        item: {
+          type: 'prediction', username: user.username, avatar: user.avatar || '🦁',
+          timestamp: pred.resolvedAt,
+          data: { match: pred.matchLabel, sport: pred.sport, outcome: pred.status, points: pointsDelta },
+        },
+      });
+    }
+  } catch (err) {
+    console.error('Auto-resolve predictions error:', err.message);
+  }
+}
+
+// ── Predictions: Resolve a prediction (correct/incorrect) ──
+app.post('/api/predictions/resolve', verifyToken, async (req, res) => {
+  const { username, matchId, winner } = req.body;
+  if (!username || !matchId || !winner) {
+    return res.status(400).json({ error: 'username, matchId, winner required' });
+  }
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const predictions = user.predictions || [];
+    const predIdx = predictions.findIndex(p => String(p.matchId) === String(matchId) && p.status === 'pending');
+    if (predIdx === -1) return res.status(404).json({ error: 'Pending prediction not found for this match' });
+
+    const pred = { ...predictions[predIdx] };
     const isCorrect = pred.teamPicked === winner;
     pred.status = isCorrect ? 'correct' : 'incorrect';
     pred.outcome = winner;
     pred.resolvedAt = new Date().toISOString();
 
     let pointsDelta = 0;
+    let newFanPoints = user.fanPoints || 0;
+    const activityLog = [...(user.activityLog || [])];
     if (isCorrect) {
       pointsDelta = pred.potentialWin;
-      user.fanPoints = (user.fanPoints || 0) + pointsDelta;
-      user.activityLog = user.activityLog || [];
-      user.activityLog.push({
-        type: 'points',
-        data: { points: pointsDelta, reason: `Correct prediction: ${pred.matchLabel}` },
-        timestamp: pred.resolvedAt,
-      });
+      newFanPoints += pointsDelta;
+      activityLog.unshift({ type: 'points', data: { points: pointsDelta, reason: `Correct prediction: ${pred.matchLabel}` }, timestamp: pred.resolvedAt });
     } else {
       pointsDelta = -pred.wager;
-      user.fanPoints = Math.max(0, (user.fanPoints || 0) + pointsDelta);
+      newFanPoints = Math.max(0, newFanPoints + pointsDelta);
     }
     pred.pointsResult = pointsDelta;
 
-    // Badges update
-    if (isCorrect && !user.badges.find(b => b.name === '🔮 Oracle')) {
-      user.badges.push({ name: '🔮 Oracle', earnedAt: new Date().toISOString() });
+    const updatedPredictions = predictions.map((p, i) => i === predIdx ? pred : p);
+    const badges = [...(user.badges || [])];
+    if (isCorrect && !badges.find(b => b.name === '🔮 Oracle')) {
+      badges.push({ name: '🔮 Oracle', earnedAt: new Date().toISOString() });
     }
-    const correctCount = user.predictions.filter(p => p.status === 'correct').length;
-    if (correctCount >= 5 && !user.badges.find(b => b.name === '🔮 Oracle Master')) {
-      user.badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
+    const correctCount = updatedPredictions.filter(p => p.status === 'correct').length;
+    if (correctCount >= 5 && !badges.find(b => b.name === '🔮 Oracle Master')) {
+      badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
     }
 
-    console.log(`   🔮 Auto-Resolved: ${user.username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
-
-    // Broadcast user activity update
-    broadcastRealtime({
-      type: 'activity',
-      username: user.username,
-      item: {
-        type: 'prediction',
-        username: user.username,
-        avatar: user.avatar || '🦁',
-        timestamp: pred.resolvedAt,
-        data: {
-          match: pred.matchLabel,
-          sport: pred.sport,
-          outcome: pred.status,
-          points: pointsDelta
-        }
-      }
+    await dbUpdateUser(username, {
+      predictions: updatedPredictions,
+      fanPoints: newFanPoints,
+      badges,
+      activityLog: activityLog.slice(0, 50),
     });
-  });
-}
-
-// ── Predictions: Resolve a prediction (correct/incorrect) ──
-app.post('/api/predictions/resolve', (req, res) => {
-  const { username, matchId, winner } = req.body;
-  if (!username || !matchId || !winner) {
-    return res.status(400).json({ error: 'username, matchId, winner required' });
+    const updated = await dbFindUser(username);
+    console.log(`   🔮 Resolved: ${username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
+    res.json({ message: 'Prediction resolved', prediction: pred, pointsDelta, user: safeUser(updated) });
+  } catch (err) {
+    console.error('Prediction resolve error:', err.message);
+    res.status(500).json({ error: 'Could not resolve prediction.' });
   }
-  const user = findUser(username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  if (!user.predictions) return res.status(404).json({ error: 'No predictions found' });
-
-  const pred = user.predictions.find(p => String(p.matchId) === String(matchId) && p.status === 'pending');
-  if (!pred) return res.status(404).json({ error: 'Pending prediction not found for this match' });
-
-  const isCorrect = pred.teamPicked === winner;
-  pred.status = isCorrect ? 'correct' : 'incorrect';
-  pred.outcome = winner;
-  pred.resolvedAt = new Date().toISOString();
-
-  let pointsDelta = 0;
-  if (isCorrect) {
-    pointsDelta = pred.potentialWin;
-    user.fanPoints = (user.fanPoints || 0) + pointsDelta;
-    user.activityLog = user.activityLog || [];
-    user.activityLog.push({
-      type: 'points',
-      data: { points: pointsDelta, reason: `Correct prediction: ${pred.matchLabel}` },
-      timestamp: pred.resolvedAt,
-    });
-  } else {
-    pointsDelta = -pred.wager;
-    user.fanPoints = Math.max(0, (user.fanPoints || 0) + pointsDelta);
-  }
-  pred.pointsResult = pointsDelta;
-
-  // Badge: First correct prediction
-  if (isCorrect && !user.badges.find(b => b.name === '🔮 Oracle')) {
-    user.badges.push({ name: '🔮 Oracle', earnedAt: new Date().toISOString() });
-  }
-  // Badge: 5 correct predictions
-  const correctCount = user.predictions.filter(p => p.status === 'correct').length;
-  if (correctCount >= 5 && !user.badges.find(b => b.name === '🔮 Oracle Master')) {
-    user.badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
-  }
-
-  console.log(`   🔮 Resolved: ${username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
-  const { password: _, ...userSafe } = user;
-  res.json({ message: 'Prediction resolved', prediction: pred, pointsDelta, user: userSafe });
 });
 
 // ── Predictions: Get all predictions + accuracy stats ──
-app.get('/api/predictions/:username', (req, res) => {
-  const user = findUser(req.params.username);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+app.get('/api/predictions/:username', async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
   const predictions = (user.predictions || []).slice().reverse(); // newest first
   const total = predictions.length;
@@ -544,6 +605,9 @@ app.get('/api/predictions/:username', (req, res) => {
       streak,
     },
   });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch predictions.' });
+  }
 });
 
 // ── Trending ──
@@ -675,6 +739,9 @@ app.get('/api/health', (req, res) => {
       aiScores: hasGemini ? 'configured' : 'missing',
       openai: hasOpenAI ? 'configured' : 'missing',
       gemini: hasGemini ? 'configured' : 'missing',
+      database: useDatabase ? 'mongodb' : 'in-memory',
+      push: (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) ? 'configured' : 'missing',
+      premium: stripe ? 'configured' : 'missing',
     },
   });
 });
@@ -1043,13 +1110,26 @@ app.get('/api/sports/tennis/upcoming', async (req, res) => {
   }
 });
 
-// ── Cricket (using free cricketdata.org API — no RapidAPI subscription needed) ──
+// ── Cricket ──
+const CRICAPI_KEY = process.env.CRICAPI_KEY; // Set a real key at https://cricapi.com — free tier available
 app.get('/api/sports/cricket/live', async (req, res) => {
+  // If Gemini AI scores are available, skip the cricket API entirely (already covered in /api/sports/ai-scores/all)
+  if (isCacheValid('cricket')) {
+    return res.json({ response: aiScoresCache.cricket.data, results: aiScoresCache.cricket.data.length, source: 'ai-cache' });
+  }
+
+  if (!CRICAPI_KEY) {
+    return res.status(503).json({
+      error: 'Cricket API key not configured. Set CRICAPI_KEY in .env (get a free key at https://cricapi.com)',
+      fallback: true,
+    });
+  }
+
   try {
-    // Use the free cricketdata.org API
-    const response = await fetch('https://api.cricapi.com/v1/currentMatches?apikey=demo&offset=0');
+    const response = await fetch(`https://api.cricapi.com/v1/currentMatches?apikey=${CRICAPI_KEY}&offset=0`);
     if (!response.ok) throw new Error(`Cricket API ${response.status}`);
     const data = await response.json();
+    if (data.status !== 'success') throw new Error(data.reason || 'CricAPI error');
     console.log(`   ✅ Cricket: ${data.data?.length || 0} matches`);
     res.json({ response: data.data || [], results: data.data?.length || 0 });
   } catch (err) {
@@ -2144,7 +2224,7 @@ app.get('/api/leaderboard', async (req, res) => {
 });
 
 // ── Follow / Unfollow ──
-app.post('/api/follow', async (req, res) => {
+app.post('/api/follow', verifyToken, async (req, res) => {
   const { follower, following } = req.body;
   try {
     const followerUser = await dbFindUser(follower);
@@ -2163,7 +2243,7 @@ app.post('/api/follow', async (req, res) => {
   }
 });
 
-app.delete('/api/follow', async (req, res) => {
+app.delete('/api/follow', verifyToken, async (req, res) => {
   const { follower, following } = req.body;
   try {
     const followerUser = await dbFindUser(follower);
@@ -2179,7 +2259,7 @@ app.delete('/api/follow', async (req, res) => {
 });
 
 // ── Post Activity ──
-app.post('/api/activity', async (req, res) => {
+app.post('/api/activity', verifyToken, async (req, res) => {
   const { username, type, data } = req.body;
   try {
     const user = await dbFindUser(username);
@@ -2222,31 +2302,417 @@ app.get('/api/activity-feed/:username', async (req, res) => {
   }
 });
 
-app.get('/api/trending', (req, res) => {
-  const now = Date.now();
-  const SPORT_META = {
-    cricket:  { label: 'Cricket',  icon: '🏏' },
-    football: { label: 'Football', icon: '⚽' },
-    nba:      { label: 'NBA',      icon: '🏀' },
-    tennis:   { label: 'Tennis',   icon: '🎾' },
-    f1:       { label: 'F1',       icon: '🏎️' },
-  };
+// ============================================
+// PERSONALIZED FEED
+// ============================================
 
-  const active = Object.entries(trendingCounters)
-    .filter(([, v]) => now - v.lastReset <= TRENDING_WINDOW_MS)
-    .map(([sport, v]) => ({ sport, count: v.count, ...SPORT_META[sport] }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3);
+app.get('/api/feed/:username', async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
 
-  if (active.length === 0) {
-    return res.json({ trending: [
-      { sport: 'cricket',  label: 'Cricket',  icon: '🏏', count: 0 },
-      { sport: 'football', label: 'Football', icon: '⚽', count: 0 },
-      { sport: 'nba',      label: 'NBA',      icon: '🏀', count: 0 },
-    ]});
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const favoriteSports = user.preferences?.favoriteSports || [];
+
+    // Collect feed items from activity log + followed users
+    const feed = [];
+
+    // Own recent activity
+    (user.activityLog || []).slice(0, 20).forEach(item => {
+      feed.push({ ...item, username: user.username, avatar: user.avatar || '🦁', source: 'self' });
+    });
+
+    // Followed users' activity
+    for (const followedName of (user.following || [])) {
+      const followedUser = await dbFindUser(followedName);
+      if (followedUser?.activityLog) {
+        followedUser.activityLog.slice(0, 10).forEach(item => {
+          feed.push({ ...item, username: followedName, avatar: followedUser.avatar || '🦁', source: 'following' });
+        });
+      }
+    }
+
+    // Sort by timestamp descending
+    feed.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    // Filter by favorite sports if user has any configured
+    const filtered = favoriteSports.length > 0
+      ? feed.filter(item => !item.data?.sport || favoriteSports.includes(item.data.sport))
+      : feed;
+
+    const total = filtered.length;
+    const paginated = filtered.slice(skip, skip + Number(limit));
+
+    res.json({
+      feed: paginated,
+      total,
+      page: Number(page),
+      hasMore: skip + paginated.length < total,
+      favoriteSports,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch feed.' });
+  }
+});
+
+// ============================================
+// DAILY CHALLENGES (Server-side)
+// ============================================
+
+const CHALLENGE_TEMPLATES = [
+  { id: 'watch_3', title: 'Match Watcher', description: 'View 3 different live matches today', reward: 30, type: 'view_match', target: 3 },
+  { id: 'predict_2', title: 'Oracle in Training', description: 'Make 2 Oracle predictions', reward: 40, type: 'predict', target: 2 },
+  { id: 'cheer', title: 'Fan Zone Hero', description: 'Cheer in the Fan Zone for any match', reward: 20, type: 'cheer', target: 1 },
+  { id: 'share', title: 'Spread the Word', description: 'Share a match result', reward: 25, type: 'share', target: 1 },
+  { id: 'login', title: 'Daily Check-in', description: 'Log in and visit any page', reward: 10, type: 'login', target: 1 },
+];
+
+function generateDailyChallenges() {
+  const shuffled = [...CHALLENGE_TEMPLATES].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 3).map(c => ({
+    ...c,
+    progress: 0,
+    completed: false,
+    generatedAt: new Date().toISOString(),
+  }));
+}
+
+// Get challenges for a user
+app.get('/api/challenges/:username', async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const today = new Date().toISOString().split('T')[0];
+    let challenges = user.dailyChallenges;
+
+    // Generate new challenges if none or stale (different day)
+    if (!challenges || user.lastChallengeDate !== today) {
+      challenges = generateDailyChallenges();
+      await dbUpdateUser(req.params.username, { dailyChallenges: challenges, lastChallengeDate: today });
+    }
+
+    res.json({ challenges, date: today });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch challenges.' });
+  }
+});
+
+// Update challenge progress
+app.post('/api/challenges/:username/progress', verifyToken, async (req, res) => {
+  const { type } = req.body;
+  if (!type) return res.status(400).json({ error: 'type required' });
+
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const today = new Date().toISOString().split('T')[0];
+    let challenges = user.dailyChallenges;
+    if (!challenges || user.lastChallengeDate !== today) {
+      challenges = generateDailyChallenges();
+    }
+
+    let totalPointsAwarded = 0;
+    const newBadges = [];
+    const updatedChallenges = challenges.map(c => {
+      if (c.completed || c.type !== type) return c;
+      const newProgress = (c.progress || 0) + 1;
+      const completed = newProgress >= c.target;
+      if (completed && !c.completed) {
+        totalPointsAwarded += c.reward;
+      }
+      return { ...c, progress: newProgress, completed };
+    });
+
+    // Check if all 3 challenges completed → bonus + streak
+    const allDone = updatedChallenges.every(c => c.completed);
+    let newStreak = user.streak || 0;
+    let newFanPoints = (user.fanPoints || 0) + totalPointsAwarded;
+
+    if (allDone) {
+      const wasAlreadyAllDone = (challenges || []).every(c => c.completed);
+      if (!wasAlreadyAllDone) {
+        totalPointsAwarded += 25; // All-challenges bonus
+        newFanPoints += 25;
+        newStreak += 1;
+        if (newStreak % 7 === 0) {
+          const badgeName = `🔥 ${newStreak}-Day Streak`;
+          const badges = [...(user.badges || [])];
+          if (!badges.find(b => b.name === badgeName)) {
+            badges.push({ name: badgeName, earnedAt: Date.now() });
+            newBadges.push(badgeName);
+            await dbUpdateUser(req.params.username, { badges });
+          }
+        }
+      }
+    }
+
+    await dbUpdateUser(req.params.username, {
+      dailyChallenges: updatedChallenges,
+      lastChallengeDate: today,
+      fanPoints: newFanPoints,
+      streak: newStreak,
+    });
+
+    res.json({ challenges: updatedChallenges, pointsAwarded: totalPointsAwarded, newBadges });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not update challenge.' });
+  }
+});
+
+// Reset challenges at midnight UTC via cron
+cron.schedule('0 0 * * *', async () => {
+  console.log('   ⏰ Cron: Daily challenge reset triggered at midnight UTC');
+  try {
+    // Reset streak for users who didn't complete challenges yesterday
+    const allUsers = await dbGetAllUsers();
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    for (const user of allUsers) {
+      if (user.lastChallengeDate && user.lastChallengeDate < yesterday) {
+        // Missed challenges — reset streak
+        const notAllDone = !(user.dailyChallenges || []).every(c => c.completed);
+        if (notAllDone && (user.streak || 0) > 0) {
+          await dbUpdateUser(user.username, { streak: 0 });
+          console.log(`   🔥 Streak reset: ${user.username}`);
+        }
+      }
+    }
+    console.log('   ✅ Cron: Daily challenge reset complete');
+  } catch (err) {
+    console.error('   ❌ Cron error:', err.message);
+  }
+}, { timezone: 'UTC' });
+
+// ============================================
+// FANTASY-LITE PICKS
+// ============================================
+
+app.post('/api/fantasy/pick', verifyToken, async (req, res) => {
+  const { username, matchId, matchLabel, sport, pick, pickType = 'team' } = req.body;
+  if (!username || !matchId || !pick) {
+    return res.status(400).json({ error: 'username, matchId, pick required' });
+  }
+  if (req.user.username !== username) {
+    return res.status(403).json({ error: 'Cannot submit fantasy pick for another user.' });
   }
 
-  res.json({ trending: active });
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const fantasyPicks = user.fantasyPicks || [];
+    const existing = fantasyPicks.find(p => String(p.matchId) === String(matchId));
+    if (existing) {
+      return res.status(409).json({ error: 'Fantasy pick already made for this match', pick: existing });
+    }
+
+    const fantasyPick = {
+      id: `fp_${Date.now()}`,
+      matchId: String(matchId),
+      matchLabel: matchLabel || 'Unknown Match',
+      sport: sport || 'unknown',
+      pick,
+      pickType,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    await dbUpdateUser(username, { fantasyPicks: [...fantasyPicks, fantasyPick] });
+    console.log(`   ⚡ Fantasy pick: ${username} picked ${pick} for ${matchLabel}`);
+    res.status(201).json({ message: 'Fantasy pick saved', pick: fantasyPick });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not save fantasy pick.' });
+  }
+});
+
+app.get('/api/fantasy/:username', async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const picks = (user.fantasyPicks || []).slice().reverse();
+    res.json({ picks, total: picks.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch fantasy picks.' });
+  }
+});
+
+// ============================================
+// PUSH NOTIFICATION ENDPOINTS
+// ============================================
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  if (!VAPID_PUBLIC_KEY) {
+    return res.status(503).json({ error: 'Push notifications not configured on server.' });
+  }
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', verifyToken, async (req, res) => {
+  const { username, subscription } = req.body;
+  if (!username || !subscription) {
+    return res.status(400).json({ error: 'username and subscription required' });
+  }
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const subs = user.pushSubscriptions || [];
+    const exists = subs.find(s => s.endpoint === subscription.endpoint);
+    if (!exists) {
+      await dbUpdateUser(username, { pushSubscriptions: [...subs, subscription] });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not save push subscription.' });
+  }
+});
+
+app.post('/api/push/unsubscribe', verifyToken, async (req, res) => {
+  const { username, endpoint } = req.body;
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const subs = (user.pushSubscriptions || []).filter(s => s.endpoint !== endpoint);
+    await dbUpdateUser(username, { pushSubscriptions: subs });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not remove subscription.' });
+  }
+});
+
+// Internal helper: send push to a user
+async function sendPushToUser(username, payload) {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+  try {
+    const user = await dbFindUser(username);
+    if (!user?.pushSubscriptions?.length) return;
+    const message = JSON.stringify(payload);
+    for (const sub of user.pushSubscriptions) {
+      try {
+        await webpush.sendNotification(sub, message);
+      } catch (err) {
+        if (err.statusCode === 410) {
+          // Subscription expired — remove it
+          const subs = (user.pushSubscriptions || []).filter(s => s.endpoint !== sub.endpoint);
+          await dbUpdateUser(username, { pushSubscriptions: subs });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Push notification error:', err.message);
+  }
+}
+
+// ============================================
+// OPEN GRAPH / SEO ENDPOINT
+// ============================================
+
+app.get('/api/og/:matchId', optionalAuth, (req, res) => {
+  const { matchId } = req.params;
+  const { teamA, teamB, sport, league, score } = req.query;
+
+  const sportEmojis = { cricket: '🏏', football: '⚽', nba: '🏀', tennis: '🎾', f1: '🏁' };
+  const icon = sportEmojis[sport] || '🏅';
+  const title = teamA && teamB
+    ? `${icon} ${teamA} vs ${teamB} — Live on Esportsduniya`
+    : 'Live Sports Scores — Esportsduniya';
+  const description = score
+    ? `${teamA} ${score} | Live ${league || sport} scores, AI commentary & predictions — Esportsduniya.in`
+    : `Watch live ${league || sport || 'sports'} scores, get AI commentary & make Oracle predictions on Esportsduniya.in`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:image" content="https://www.esportsduniya.in/favicon.svg">
+  <meta property="og:url" content="https://www.esportsduniya.in/#match/${matchId}">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${description}">
+  <meta http-equiv="refresh" content="0; url=https://www.esportsduniya.in/#match/${matchId}">
+</head>
+<body><p>Redirecting to match...</p></body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
+});
+
+// ============================================
+// STRIPE PREMIUM TIER
+// ============================================
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID;
+let stripe = null;
+if (STRIPE_SECRET_KEY) {
+  stripe = new Stripe(STRIPE_SECRET_KEY);
+  console.log('   ✅ Stripe: Premium billing configured');
+} else {
+  console.log('   ℹ️  Stripe: No STRIPE_SECRET_KEY — premium tier disabled');
+}
+
+app.post('/api/premium/checkout', verifyToken, async (req, res) => {
+  if (!stripe || !STRIPE_PRICE_ID) {
+    return res.status(503).json({ error: 'Premium billing not configured.' });
+  }
+  const { username } = req.body;
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
+      success_url: `https://www.esportsduniya.in/#profile?premium=success`,
+      cancel_url: `https://www.esportsduniya.in/#profile?premium=cancelled`,
+      metadata: { username },
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/premium/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Stripe not configured.' });
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const username = session.metadata?.username;
+    if (username) {
+      const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+      await dbUpdateUser(username, { isPremium: true, premiumExpiry: expiry });
+      console.log(`   💎 Premium activated: ${username}`);
+    }
+  }
+  if (event.type === 'customer.subscription.deleted') {
+    // Handle cancellation if username is available
+  }
+  res.json({ received: true });
+});
+
+app.get('/api/premium/status/:username', async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const isPremium = user.isPremium && (!user.premiumExpiry || new Date(user.premiumExpiry) > new Date());
+    res.json({ isPremium, premiumExpiry: user.premiumExpiry || null });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not check premium status.' });
+  }
 });
 
 // ============================================

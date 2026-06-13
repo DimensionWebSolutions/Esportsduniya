@@ -4,6 +4,7 @@
    in-app notifications, and reminder checks.
    ============================================ */
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
 let swRegistration = null;
 
 // ── Register Service Worker ──
@@ -19,12 +20,61 @@ export async function registerServiceWorker() {
   }
 }
 
+// ── Subscribe to Web Push ──
+export async function subscribeToPush() {
+  if (!swRegistration) return null;
+  try {
+    const res = await fetch(`${API_BASE}/api/push/vapid-public-key`);
+    if (!res.ok) return null;
+    const { publicKey } = await res.json();
+
+    const subscription = await swRegistration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const token = localStorage.getItem('token');
+    if (user?.username && token) {
+      await fetch(`${API_BASE}/api/push/subscribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ username: user.username, subscription }),
+      });
+    }
+    console.log('✅ Push subscription saved');
+    return subscription;
+  } catch (err) {
+    console.warn('Push subscription failed:', err);
+    return null;
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 // ── Request notification permission ──
 export async function requestNotificationPermission() {
   if (!('Notification' in window)) return 'unsupported';
-  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'granted') {
+    await subscribeToPush();
+    return 'granted';
+  }
   if (Notification.permission === 'denied') return 'denied';
-  return Notification.requestPermission();
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') await subscribeToPush();
+  return perm;
 }
 
 // ── Send a notification (SW or fallback to in-app toast) ──

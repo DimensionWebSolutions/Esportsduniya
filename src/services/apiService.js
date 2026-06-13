@@ -27,6 +27,20 @@ import { getWebSocketUrl } from './webSocketUrl.js';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 let apiAvailable = null; // null = unchecked, true/false after check
+
+export function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+export async function authFetch(url, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+    ...(options.headers || {}),
+  };
+  return fetch(url, { ...options, headers });
+}
 let aiScoresAvailable = false; // whether AI-powered scores are ready
 let rapidApiAvailable = false; // whether RapidAPI sports endpoints are configured
 let lastAllAiMatches = null;
@@ -350,9 +364,8 @@ export async function fetchAINarrative(matchContext, tone = 'hype') {
         return { text: AI_NARRATIVES[tone] || AI_NARRATIVES.hype, source: 'mock' };
     }
     try {
-        const res = await fetch(`${API_BASE}/api/ai/narrative`, {
+        const res = await authFetch(`${API_BASE}/api/ai/narrative`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ matchContext, tone }),
             signal: AbortSignal.timeout(30000),
         });

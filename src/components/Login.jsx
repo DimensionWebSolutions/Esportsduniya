@@ -22,6 +22,7 @@ export default function Login({ onLogin }) {
 
       if (response.ok) {
         localStorage.setItem('user', JSON.stringify(data.user));
+        if (data.token) localStorage.setItem('token', data.token);
         onLogin(data.user);
         setMessage(data.message);
 
