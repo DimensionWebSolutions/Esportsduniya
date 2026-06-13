@@ -36,6 +36,7 @@ import ProfilePage from './pages/Profile.jsx';
 
 // API Service
 import { checkApiHealth, fetchLiveMatches } from './services/apiService.js';
+import { registerServiceWorker, startReminderChecker } from './components/NotificationHelper.js';
 import { initLiveScoreManager } from './services/LiveScoreManager.js';
 
 // GSAP
@@ -139,6 +140,9 @@ async function renderApp() {
 
     // 9. Discover backend state before the first dashboard fetch.
     await checkApiHealth();
+
+    // 9.1 Register Service Worker and start reminder checker
+    registerServiceWorker().then(() => startReminderChecker());
 
         // 9.5. Refresh ticker with real AI data
     refreshTicker();
@@ -250,49 +254,6 @@ function createBackToTop() {
     window.addEventListener('scroll', () => {
         btn.classList.toggle('visible', window.scrollY > 400);
     }, { passive: true });
-}
-
-/* ── Reminder Checker ── */
-function startReminderChecker() {
-    function checkReminders() {
-        const reminders = JSON.parse(localStorage.getItem('esd_reminders') || '[]');
-        if (reminders.length === 0) return;
-
-        const now = Date.now();
-        const FIFTEEN_MIN = 15 * 60 * 1000;
-        const notified = JSON.parse(localStorage.getItem('esd_reminded') || '[]');
-
-        reminders.forEach(r => {
-            const kickoffTime = new Date(r.kickoff).getTime();
-            const diff = kickoffTime - now;
-            const key = `${r.matchId}_${r.kickoff}`;
-
-            if (diff > 0 && diff <= FIFTEEN_MIN && !notified.includes(key)) {
-                notified.push(key);
-                localStorage.setItem('esd_reminded', JSON.stringify(notified));
-
-                const msg = `⏰ ${r.teamA} vs ${r.teamB} starts in ~15 minutes!`;
-
-                if ('Notification' in window && Notification.permission === 'granted') {
-                    new Notification('Match Reminder — EsportsDuniya', {
-                        body: msg,
-                        icon: '/favicon.svg',
-                    });
-                } else {
-                    // Toast fallback
-                    const t = document.createElement('div');
-                    t.className = 'ed-toast ed-toast-success';
-                    t.textContent = msg;
-                    document.body.appendChild(t);
-                    requestAnimationFrame(() => t.classList.add('show'));
-                    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 5000);
-                }
-            }
-        });
-    }
-
-    checkReminders();
-    setInterval(checkReminders, 60000);
 }
 
 /* ── Ticker Refresh with Live Data ── */
