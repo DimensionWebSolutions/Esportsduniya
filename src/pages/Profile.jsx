@@ -134,10 +134,14 @@ export default function ProfilePage() {
         <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
         <p>{error}</p>
         <button
-          onClick={() => window.esportsLogout?.()}
+          onClick={() => {
+            const app = document.getElementById('app');
+            if (window.mountLoginScreen) window.mountLoginScreen(app);
+            else window.esportsLogout?.();
+          }}
           style={{ marginTop: '1rem', padding: '10px 24px', borderRadius: '20px', background: 'var(--accent-cyber)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '1rem' }}
         >
-          Go to Login
+          Sign In
         </button>
       </div>
     );

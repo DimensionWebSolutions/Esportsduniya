@@ -54,6 +54,64 @@ let currentPage = 'dashboard';
 // Track active React root so we can unmount before navigating away
 let currentReactRoot = null;
 
+/* ── Top Bar (notification bell + user avatar or login button) ── */
+function renderTopBar() {
+    const existing = document.getElementById('esd-top-bar');
+    if (existing) existing.remove();
+
+    const topBar = document.createElement('div');
+    topBar.id = 'esd-top-bar';
+    topBar.style.cssText = 'position:fixed;top:14px;right:16px;z-index:1000;display:flex;align-items:center;gap:10px;';
+
+    // Notification bell
+    const notifBell = document.createElement('button');
+    notifBell.id = 'notif-bell';
+    notifBell.title = 'Notifications';
+    notifBell.innerHTML = '🔔';
+    notifBell.style.cssText = 'font-size:1.4em;background:none;border:none;cursor:pointer;';
+    notifBell.addEventListener('click', async () => {
+        const { requestNotificationPermission } = await import('./components/NotificationHelper.js');
+        const perm = await requestNotificationPermission();
+        notifBell.textContent = perm === 'granted' ? '🔔' : perm === 'denied' ? '🚫' : '🔕';
+    });
+    topBar.appendChild(notifBell);
+
+    const storedUserInfo = JSON.parse(localStorage.getItem('user') || 'null');
+
+    if (storedUserInfo?.username) {
+        // Logged-in: avatar → profile, logout button
+        const userBtn = document.createElement('button');
+        userBtn.title = `Logged in as ${storedUserInfo.username}`;
+        userBtn.innerHTML = storedUserInfo.avatar || '🦁';
+        userBtn.style.cssText = 'font-size:1.4em;background:none;border:none;cursor:pointer;';
+        userBtn.addEventListener('click', () => navigateTo('profile'));
+
+        const logoutBtn = document.createElement('button');
+        logoutBtn.title = 'Logout';
+        logoutBtn.innerHTML = '⏻';
+        logoutBtn.style.cssText = 'font-size:1.1em;background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.3);border-radius:8px;padding:4px 8px;color:#ff5050;cursor:pointer;';
+        logoutBtn.addEventListener('click', () => {
+            if (confirm('Log out of Esportsduniya?')) window.esportsLogout();
+        });
+
+        topBar.appendChild(userBtn);
+        topBar.appendChild(logoutBtn);
+    } else {
+        // Guest: "Sign In" button opens the login overlay
+        const loginBtn = document.createElement('button');
+        loginBtn.title = 'Sign in or create an account';
+        loginBtn.textContent = 'Sign In';
+        loginBtn.style.cssText = [
+            'padding:6px 16px;border-radius:20px;font-size:0.9rem;font-weight:600;cursor:pointer;',
+            'background:var(--accent-cyber,#1ee6a7);color:#000;border:none;',
+        ].join('');
+        loginBtn.addEventListener('click', () => mountLoginScreen(document.getElementById('app')));
+        topBar.appendChild(loginBtn);
+    }
+
+    document.body.appendChild(topBar);
+}
+
 /* ── App Initialization ── */
 async function renderApp() {
     const app = document.getElementById('app');
@@ -106,43 +164,8 @@ async function renderApp() {
         document.body.appendChild(btn);
     }
 
-    // Top bar: notification bell + user avatar + logout
-    const existingTopBar = document.getElementById('esd-top-bar');
-    if (existingTopBar) existingTopBar.remove();
-    const topBar = document.createElement('div');
-    topBar.id = 'esd-top-bar';
-    topBar.style.cssText = 'position:fixed;top:14px;right:16px;z-index:1000;display:flex;align-items:center;gap:10px;';
-
-    const notifBell = document.createElement('button');
-    notifBell.id = 'notif-bell';
-    notifBell.title = 'Notifications';
-    notifBell.innerHTML = '🔔';
-    notifBell.style.cssText = 'font-size:1.4em;background:none;border:none;cursor:pointer;';
-    notifBell.addEventListener('click', async () => {
-        const { requestNotificationPermission } = await import('./components/NotificationHelper.js');
-        const perm = await requestNotificationPermission();
-        notifBell.textContent = perm === 'granted' ? '🔔' : perm === 'denied' ? '🚫' : '🔕';
-    });
-
-    const storedUserInfo = JSON.parse(localStorage.getItem('user') || '{}');
-    const userBtn = document.createElement('button');
-    userBtn.title = `Logged in as ${storedUserInfo.username || 'User'}`;
-    userBtn.innerHTML = storedUserInfo.avatar || '🦁';
-    userBtn.style.cssText = 'font-size:1.4em;background:none;border:none;cursor:pointer;';
-    userBtn.addEventListener('click', () => navigateTo('profile'));
-
-    const logoutBtn = document.createElement('button');
-    logoutBtn.title = 'Logout';
-    logoutBtn.innerHTML = '⏻';
-    logoutBtn.style.cssText = 'font-size:1.1em;background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.3);border-radius:8px;padding:4px 8px;color:#ff5050;cursor:pointer;';
-    logoutBtn.addEventListener('click', () => {
-        if (confirm('Log out of Esportsduniya?')) window.esportsLogout();
-    });
-
-    topBar.appendChild(notifBell);
-    topBar.appendChild(userBtn);
-    topBar.appendChild(logoutBtn);
-    document.body.appendChild(topBar);
+    // Top bar
+    renderTopBar();
 
     // 1. Dynamic score island
     const island = createDynamicIsland();
@@ -201,36 +224,75 @@ async function renderApp() {
     );
 }
 
-// Mount AuthGate and renderApp
+// Boot the app — login is optional; everyone gets the full dashboard
 function initApp() {
     const app = document.getElementById('app');
     app.innerHTML = '';
-
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('token');
-
-    if (storedUser && storedToken) {
-        // Already logged in — go straight to the app
-        renderApp();
-    } else {
-        // Not logged in — mount the React Login screen
-        mountLoginScreen(app);
-    }
+    renderApp();
 }
 
+// Show a login modal overlay without blocking the app underneath
 function mountLoginScreen(appEl) {
-    appEl.innerHTML = '';
-    const loginRoot = ReactDOM.createRoot(appEl);
+    // Create a full-screen overlay so the existing app stays mounted behind it
+    let overlay = document.getElementById('esd-login-overlay');
+    if (overlay) return; // already open
+
+    overlay = document.createElement('div');
+    overlay.id = 'esd-login-overlay';
+    overlay.style.cssText = [
+        'position:fixed;inset:0;z-index:9999',
+        'background:rgba(8,8,18,0.92)',
+        'backdrop-filter:blur(8px)',
+        'display:flex;align-items:center;justify-content:center',
+    ].join(';');
+
+    // Allow tapping the backdrop to close
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeLoginOverlay();
+    });
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;width:100%;max-width:380px;';
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '✕';
+    closeBtn.setAttribute('aria-label', 'Close login');
+    closeBtn.style.cssText = [
+        'position:absolute;top:-36px;right:0',
+        'background:none;border:none;color:#aaa;font-size:1.3rem;cursor:pointer',
+        'padding:4px 10px;',
+    ].join(';');
+    closeBtn.addEventListener('click', closeLoginOverlay);
+
+    const loginRoot = ReactDOM.createRoot(wrapper);
 
     function handleLogin(userObj) {
-        // Unmount login, start the full app
-        loginRoot.unmount();
-        renderApp();
+        closeLoginOverlay();
+        // Refresh the top bar to show the user's avatar
+        const topBar = document.getElementById('esd-top-bar');
+        if (topBar) topBar.remove();
+        renderTopBar();
     }
 
-    loginRoot.render(
-        React.createElement(AuthGate, { onLoginSuccess: handleLogin })
-    );
+    loginRoot.render(React.createElement(AuthGate, { onLoginSuccess: handleLogin }));
+
+    wrapper.prepend(closeBtn);
+    overlay.appendChild(wrapper);
+    if (appEl) appEl.appendChild(overlay);
+    else document.body.appendChild(overlay);
+
+    // Store root ref so we can unmount on close
+    overlay._loginRoot = loginRoot;
+}
+
+function closeLoginOverlay() {
+    const overlay = document.getElementById('esd-login-overlay');
+    if (!overlay) return;
+    if (overlay._loginRoot) {
+        try { overlay._loginRoot.unmount(); } catch { /* ignore */ }
+    }
+    overlay.remove();
 }
 
 /* ── Loading Screen ── */
@@ -469,18 +531,21 @@ function navigateTo(pageId) {
 window.esportsLogout = function () {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
-    // Unmount any React root
+    // Unmount any React root (e.g. profile page)
     if (currentReactRoot) {
         currentReactRoot.unmount();
         currentReactRoot = null;
     }
-    // Re-mount login screen
-    const app = document.getElementById('app');
-    if (app) mountLoginScreen(app);
+    // Navigate back to dashboard and refresh top bar to show guest state
+    renderTopBar();
+    navigateTo('dashboard');
 };
 
 /* ── Global Navigate (used by React pages) ── */
 window.esportsNavigate = navigateTo;
+
+/* ── Global Login Overlay (used by React pages) ── */
+window.mountLoginScreen = mountLoginScreen;
 
 /* ── Boot ── */
 if (document.readyState === 'loading') {
