@@ -21,7 +21,7 @@ export function createTimeMachine(gsap) {
     header.className = 'tm-header';
     header.innerHTML = `
     <h1>⏳ The Chronicles</h1>
-    <p>Travel through time and relive the moments that defined sport. Every era has its own visual soul.</p>
+    <p>Travel through time and relive the moments that defined sport. <span class="curated-badge">Curated · Fan Zone</span></p>
   `;
     page.appendChild(header);
 

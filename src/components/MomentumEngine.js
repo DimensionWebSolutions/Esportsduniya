@@ -3,10 +3,15 @@
    Dynamic, AI-powered momentum visualization
    ============================================ */
 import { gsap } from 'gsap';
-import { MOMENTUM_DATA } from '../data/mockData.js';
 
-// Current momentum data (starts with mock, updated by AI)
-let currentData = { ...MOMENTUM_DATA };
+let currentData = {
+  teamA: 'Team A',
+  teamB: 'Team B',
+  probA: 50,
+  probB: 50,
+  points: [],
+  keyMoments: [],
+};
 let lastProbA = 50;
 
 export function createMomentumEngine() {
@@ -25,7 +30,7 @@ export function createMomentumEngine() {
           background:rgba(107,107,128,0.15);
           color:var(--text-muted, #888);
           border:1px solid rgba(107,107,128,0.2);
-        ">Mock Data</span>
+        ">Waiting...</span>
         <span class="ai-badge">AI Powered</span>
       </div>
     </div>
@@ -41,6 +46,10 @@ export function createMomentumEngine() {
       Analyzing match momentum via AI + Internet Search...
     </div>
 
+    <div id="momentum-unavailable" style="display:none;text-align:center;padding:24px;color:var(--text-muted);font-size:0.85rem;">
+      Momentum analysis unavailable for this match right now.
+    </div>
+
     <div id="momentum-content" style="display:none">
       <div class="momentum-graph" id="momentum-graph">
         <div class="momentum-impact-flare" id="impact-flare"></div>
@@ -49,14 +58,14 @@ export function createMomentumEngine() {
 
       <div class="win-probability">
         <div class="prob-bar">
-          <div class="prob-bar-label" id="momentum-team-a">${currentData.teamA}</div>
+          <div class="prob-bar-label" id="momentum-team-a">Team A</div>
           <div class="prob-bar-track">
             <div class="prob-bar-fill team-a" style="width: 0%" id="prob-fill-a"></div>
           </div>
           <div class="prob-bar-value text-cyber" id="prob-val-a">0%</div>
         </div>
         <div class="prob-bar">
-          <div class="prob-bar-label" id="momentum-team-b">${currentData.teamB}</div>
+          <div class="prob-bar-label" id="momentum-team-b">Team B</div>
           <div class="prob-bar-track">
             <div class="prob-bar-fill team-b" style="width: 0%" id="prob-fill-b"></div>
           </div>
@@ -75,85 +84,94 @@ export function createMomentumEngine() {
         display:none;
       "></div>
 
-      <div class="key-moments" id="key-moments">
-        ${currentData.keyMoments.map(m => `
-          <div class="key-moment">
-            <span class="moment-time">Over ${m.over}</span>
-            <span style="margin-left:8px">${m.text}</span>
-          </div>
-        `).join('')}
-      </div>
+      <div class="key-moments" id="key-moments"></div>
     </div>
   `;
 
   return panel;
 }
 
-/**
- * Update the momentum engine with new data (from AI or other source)
- */
 export function updateMomentumEngine(data) {
-  if (!data) return;
+  if (!data || data.unavailable) {
+    showMomentumUnavailable();
+    return;
+  }
 
   currentData = {
     teamA: data.teamA || currentData.teamA,
     teamB: data.teamB || currentData.teamB,
-    probA: data.probA ?? currentData.probA,
-    probB: data.probB ?? currentData.probB,
-    points: data.points && data.points.length > 0 ? data.points : currentData.points,
-    keyMoments: data.keyMoments && data.keyMoments.length > 0 ? data.keyMoments : currentData.keyMoments,
+    probA: data.probA ?? 50,
+    probB: data.probB ?? 50,
+    points: data.points && data.points.length > 0 ? data.points : [],
+    keyMoments: data.keyMoments && data.keyMoments.length > 0 ? data.keyMoments : [],
   };
 
-  // Update team names
   const teamAEl = document.getElementById('momentum-team-a');
   const teamBEl = document.getElementById('momentum-team-b');
   if (teamAEl) teamAEl.textContent = currentData.teamA;
   if (teamBEl) teamBEl.textContent = currentData.teamB;
 
-  // Update key moments
   const momentsEl = document.getElementById('key-moments');
-  if (momentsEl && currentData.keyMoments.length > 0) {
-    momentsEl.innerHTML = currentData.keyMoments.map(m => `
-      <div class="key-moment">
-        <span class="moment-time">${m.over ? 'Over ' + m.over : ''}</span>
-        <span style="margin-left:8px">${m.text}</span>
-      </div>
-    `).join('');
+  if (momentsEl) {
+    if (currentData.keyMoments.length > 0) {
+      momentsEl.innerHTML = currentData.keyMoments.map(m => `
+        <div class="key-moment">
+          <span class="moment-time">${m.over ? 'Over ' + m.over : ''}</span>
+          <span style="margin-left:8px">${m.text}</span>
+        </div>
+      `).join('');
+    } else {
+      momentsEl.innerHTML = '';
+    }
   }
 
-  // Update narrative
   const narrativeEl = document.getElementById('momentum-narrative');
-  if (narrativeEl && data.narrative) {
-    narrativeEl.textContent = '💡 ' + data.narrative;
-    narrativeEl.style.display = 'block';
+  if (narrativeEl) {
+    if (data.narrative) {
+      narrativeEl.textContent = '💡 ' + data.narrative;
+      narrativeEl.style.display = 'block';
+    } else {
+      narrativeEl.style.display = 'none';
+    }
   }
 
-  // Update source badge
   const sourceBadge = document.getElementById('momentum-source-badge');
   if (sourceBadge) {
-    const isLive = data.source === 'internet';
-    sourceBadge.textContent = isLive ? 'Live AI + Search 🔍' : 'Mock Data';
+    const isLive = data.source === 'internet' || data.source === 'ai';
+    sourceBadge.textContent = isLive ? 'Live AI + Search 🔍' : 'Unavailable';
     sourceBadge.style.background = isLive ? 'rgba(57,255,20,0.1)' : 'rgba(107,107,128,0.15)';
     sourceBadge.style.color = isLive ? 'var(--accent-neon, #39FF14)' : 'var(--text-muted, #888)';
     sourceBadge.style.borderColor = isLive ? 'rgba(57,255,20,0.3)' : 'rgba(107,107,128,0.2)';
   }
 
-  // Hide loading
   const loadingEl = document.getElementById('momentum-loading');
+  const unavailableEl = document.getElementById('momentum-unavailable');
   const contentEl = document.getElementById('momentum-content');
   if (loadingEl) loadingEl.style.display = 'none';
+  if (unavailableEl) unavailableEl.style.display = 'none';
   if (contentEl) contentEl.style.display = 'block';
 
-  // Redraw the graph and animate bars
-  drawMomentumGraph();
-  animateProbBars();
+  if (currentData.points.length > 0) {
+    drawMomentumGraph();
+    animateProbBars();
+  }
 
-  // Impact Flare check
   const diff = Math.abs((data.probA || 50) - lastProbA);
   if (diff > 15) {
     triggerImpactFlare(data.probA > lastProbA ? 'cyber' : 'fire');
   }
   lastProbA = data.probA || 50;
+}
+
+function showMomentumUnavailable() {
+  const loadingEl = document.getElementById('momentum-loading');
+  const contentEl = document.getElementById('momentum-content');
+  const unavailableEl = document.getElementById('momentum-unavailable');
+  const sourceBadge = document.getElementById('momentum-source-badge');
+  if (loadingEl) loadingEl.style.display = 'none';
+  if (contentEl) contentEl.style.display = 'none';
+  if (unavailableEl) unavailableEl.style.display = 'block';
+  if (sourceBadge) sourceBadge.textContent = 'Unavailable';
 }
 
 function triggerImpactFlare(type) {
@@ -176,19 +194,15 @@ function triggerImpactFlare(type) {
   );
 }
 
-/**
- * Show loading state on the momentum engine
- */
 export function showMomentumLoading() {
   const loadingEl = document.getElementById('momentum-loading');
   const contentEl = document.getElementById('momentum-content');
+  const unavailableEl = document.getElementById('momentum-unavailable');
   if (loadingEl) loadingEl.style.display = 'block';
   if (contentEl) contentEl.style.display = 'none';
+  if (unavailableEl) unavailableEl.style.display = 'none';
 }
 
-/**
- * Draw the momentum graph on canvas using currentData
- */
 export function drawMomentumGraph() {
   const canvas = document.getElementById('momentum-canvas');
   if (!canvas) return;
@@ -214,10 +228,8 @@ export function drawMomentumGraph() {
   const chartW = w - padding.left - padding.right;
   const chartH = h - padding.top - padding.bottom;
 
-  // Clear canvas
   ctx.clearRect(0, 0, w, h);
 
-  // Draw 50% baseline
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
@@ -228,18 +240,15 @@ export function drawMomentumGraph() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Team labels
   ctx.fillStyle = 'rgba(0,212,255,0.4)';
   ctx.font = '10px Inter';
   ctx.fillText(currentData.teamA, padding.left, padding.top - 6);
   ctx.fillStyle = 'rgba(255,61,0,0.4)';
   ctx.fillText(currentData.teamB, padding.left, h - 6);
 
-  // Plot gradient line
   const getX = (i) => padding.left + (i / (pts.length - 1)) * chartW;
   const getY = (val) => padding.top + chartH - (val / 100) * chartH;
 
-  // Gradient fill under line
   const gradient = ctx.createLinearGradient(0, padding.top, 0, h - padding.bottom);
   gradient.addColorStop(0, 'rgba(0,212,255,0.15)');
   gradient.addColorStop(0.5, 'rgba(0,0,0,0)');
@@ -257,7 +266,6 @@ export function drawMomentumGraph() {
   ctx.fillStyle = gradient;
   ctx.fill();
 
-  // Line stroke
   const lineGrad = ctx.createLinearGradient(0, 0, w, 0);
   lineGrad.addColorStop(0, '#00D4FF');
   lineGrad.addColorStop(0.6, '#39FF14');
@@ -273,13 +281,11 @@ export function drawMomentumGraph() {
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Glow effect
   ctx.shadowColor = 'rgba(57,255,20,0.4)';
   ctx.shadowBlur = 12;
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Key moment dots
   currentData.keyMoments.forEach(m => {
     const pt = pts.find(p => p.over === m.over);
     if (!pt) return;
@@ -296,7 +302,6 @@ export function drawMomentumGraph() {
     ctx.stroke();
   });
 
-  // Current point (last)
   const lastPt = pts[pts.length - 1];
   const lx = getX(pts.length - 1);
   const ly = getY(lastPt.value);
@@ -310,7 +315,6 @@ export function drawMomentumGraph() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Over labels
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.font = '9px JetBrains Mono';
   ctx.textAlign = 'center';
@@ -320,9 +324,6 @@ export function drawMomentumGraph() {
   }
 }
 
-/**
- * Animate the probability bars using currentData
- */
 export function animateProbBars() {
   setTimeout(() => {
     const fillA = document.getElementById('prob-fill-a');

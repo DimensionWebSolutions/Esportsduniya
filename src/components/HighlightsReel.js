@@ -28,7 +28,7 @@ export function createHighlightsReel() {
       const list = document.getElementById('highlights-list');
       if (!list) return;
 
-      const highlights = data.highlights || [];
+      const highlights = Array.isArray(data) ? data : (data.highlights || []);
       if (highlights.length === 0) {
         list.innerHTML = '<div style="color:var(--text-muted);font-size:var(--text-sm);padding:var(--space-4)">No highlights available right now.</div>';
         return;

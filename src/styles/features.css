@@ -270,6 +270,18 @@
     border: 1px solid rgba(57, 255, 20, 0.25);
 }
 
+.match-source-badge.live {
+    background: rgba(57, 255, 20, 0.12);
+    color: var(--accent-neon);
+    border: 1px solid rgba(57, 255, 20, 0.25);
+}
+
+.match-source-badge.cached {
+    background: rgba(255, 193, 7, 0.12);
+    color: #ffc107;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
 .match-source-badge.mock {
     background: rgba(255, 255, 255, 0.06);
     color: var(--text-muted);
@@ -330,6 +342,73 @@
     border-radius: 50%;
     background: var(--accent-neon);
     animation: pulse-live 1.5s ease-in-out infinite;
+}
+
+.live-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+}
+
+.live-status-row .last-updated {
+    margin-bottom: 0;
+    flex: 1;
+}
+
+.last-updated.status-error {
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+}
+
+.last-updated.status-error .live-indicator {
+    background: #ef4444;
+    animation: none;
+}
+
+.last-updated.status-cached {
+    border-color: rgba(255, 193, 7, 0.35);
+}
+
+.last-updated.status-cached .live-indicator {
+    background: #ffc107;
+    animation: none;
+}
+
+.live-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--accent-neon);
+    background: rgba(57, 255, 20, 0.08);
+    border: 1px solid rgba(57, 255, 20, 0.25);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.live-retry-btn:hover {
+    background: rgba(57, 255, 20, 0.15);
+}
+
+.curated-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    margin-left: 6px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-full);
+    vertical-align: middle;
 }
 
 /* ── Footer ── */

@@ -87,8 +87,9 @@ export function createPreGamePreview(match, gsap) {
     const matchupsList = container.querySelector('#matchups-list');
     const summaryText = container.querySelector('#summary-text');
 
-    if (!data) {
-      if (sourceEl) sourceEl.textContent = 'Data Unavailable';
+    if (data.unavailable) {
+      if (sourceEl) sourceEl.textContent = 'Preview unavailable';
+      if (summaryText) summaryText.textContent = 'Pre-match preview is unavailable right now.';
       return;
     }
 
@@ -99,7 +100,7 @@ export function createPreGamePreview(match, gsap) {
         sourceEl.style.background = 'rgba(57,255,20,0.1)';
         sourceEl.style.color = 'var(--accent-neon)';
       } else {
-        sourceEl.textContent = 'Mock Data';
+        sourceEl.textContent = 'Unavailable';
         sourceEl.style.background = 'rgba(107,107,128,0.15)';
         sourceEl.style.color = 'var(--text-muted)';
       }

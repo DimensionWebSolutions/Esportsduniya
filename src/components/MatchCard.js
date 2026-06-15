@@ -41,6 +41,22 @@ function setReminder(match) {
   showToast('Reminder set! ⏰');
 }
 
+function formatSourceBadge(match) {
+  const source = match.source || '';
+  if (match.stale || source === 'cached') {
+    const mins = match.fetchedAt
+      ? Math.max(1, Math.floor((Date.now() - new Date(match.fetchedAt).getTime()) / 60000))
+      : null;
+    return `<span class="match-source-badge cached">🕐 Cached${mins ? ` · ${mins}m ago` : ''}</span>`;
+  }
+  if (source === 'cricapi') return '<span class="match-source-badge live">● Live · CricAPI</span>';
+  if (source === 'api-football') return '<span class="match-source-badge live">● Live · API-Football</span>';
+  if (source === 'ai-search' || source === 'ai-search-cached') {
+    return '<span class="match-source-badge ai">🔍 AI Estimate</span>';
+  }
+  return '';
+}
+
 export function createMatchCard(match, onClick) {
   const card = document.createElement('article');
   card.className = 'glass-card match-card';
@@ -57,9 +73,6 @@ export function createMatchCard(match, onClick) {
       : '✓ FINISHED';
 
   const extraInfo = match.minute ? `<span>${match.minute}</span>` : '';
-  const sourceBadge = match.source === 'ai-search'
-    ? '<span class="match-source-badge ai">🔍 AI Live</span>'
-    : '';
 
   card.innerHTML = `
     <div class="match-card-header">
@@ -84,7 +97,7 @@ export function createMatchCard(match, onClick) {
     <div class="match-card-meta">
       <span>${match.venue}</span>
       ${extraInfo}
-      ${sourceBadge}
+      ${formatSourceBadge(match)}
     </div>
     <div class="match-card-footer">
       ${match.status === 'upcoming' ? `<button class="remind-btn" aria-label="Set reminder for this match">🔔 Remind Me</button>` : ''}
@@ -116,7 +129,10 @@ export function createMatchCard(match, onClick) {
 
   if (onClick) {
     card.addEventListener('click', () => {
-      // Track match view for daily challenge
+      if (!match.id) {
+        showToast('Match detail unavailable for this entry');
+        return;
+      }
       const today = new Date().toISOString().split('T')[0];
       const key = `esd_views_count_${today}`;
       const count = parseInt(localStorage.getItem(key) || '0', 10);

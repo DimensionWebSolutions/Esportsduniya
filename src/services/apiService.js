@@ -15,18 +15,32 @@ export async function fetchStandings(league) {
    ESPORTSDUNIYA — API Service Layer
    ============================================
    Fetches from the backend proxy (/api/*).
-   PRIMARY: AI-powered scores (Gemini + Google Search)
-   FALLBACK 1: RapidAPI endpoints (if configured)
+   PRIMARY: CricAPI (cricket) + API-Football (football)
+   FALLBACK: Last-known-good server snapshot
+   AI: Only for sports without dedicated APIs (NBA, tennis, F1)
    ============================================ */
 
-import { AI_NARRATIVES, MOMENTUM_DATA } from '../data/mockData.js';
 import { getWebSocketUrl } from './webSocketUrl.js';
 
-// In production, VITE_API_URL is set to your Railway backend URL.
-// In development, it's empty so Vite's proxy handles /api/* → localhost:3001
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-let apiAvailable = null; // null = unchecked, true/false after check
+let apiAvailable = null;
+let aiScoresAvailable = false;
+let rapidApiAvailable = false;
+let cricApiAvailable = false;
+
+/** Metadata from the last fetchLiveMatches call — for Dashboard status bar */
+let lastLiveMeta = {
+    source: null,
+    fetchedAt: null,
+    stale: false,
+    error: null,
+    matchCount: 0,
+};
+
+export function getLiveScoresMeta() {
+    return { ...lastLiveMeta };
+}
 
 export function getAuthHeaders() {
   const token = localStorage.getItem('token');
@@ -41,9 +55,6 @@ export async function authFetch(url, options = {}) {
   };
   return fetch(url, { ...options, headers });
 }
-let aiScoresAvailable = false; // whether AI-powered scores are ready
-let rapidApiAvailable = false; // whether RapidAPI sports endpoints are configured
-let lastAllAiMatches = null;
 
 /**
  * Check if the backend API server is running and has keys configured
@@ -58,22 +69,24 @@ export async function checkApiHealth() {
         apiAvailable = data.status === 'ok';
         aiScoresAvailable = data.apis?.aiScores === 'configured';
         rapidApiAvailable = data.apis?.sports === 'configured';
+        cricApiAvailable = data.apis?.cricapi === 'configured';
         console.log('🔌 API Server:', apiAvailable ? 'Connected' : 'Unavailable');
-        console.log('   🔍 AI Scores:', aiScoresAvailable ? 'Enabled (Gemini + Google Search)' : 'Not configured');
-        console.log('   Sports API (RapidAPI):', rapidApiAvailable ? 'Enabled' : 'Not configured');
-        console.log('   AI Narrative:', data.apis?.openai || data.apis?.gemini || 'unknown');
+        console.log('   🏏 CricAPI:', cricApiAvailable ? 'Enabled' : 'Not configured');
+        console.log('   ⚽ API-Football:', rapidApiAvailable ? 'Enabled' : 'Not configured');
+        console.log('   🔍 AI Scores:', aiScoresAvailable ? 'Enabled (NBA/Tennis/F1)' : 'Not configured');
         return data;
     } catch {
         apiAvailable = false;
         aiScoresAvailable = false;
         rapidApiAvailable = false;
-        console.log('🔌 API Server: Unavailable (using mock data)');
+        cricApiAvailable = false;
+        console.log('🔌 API Server: Unavailable');
         return null;
     }
 }
 
 // ============================================
-// DATA NORMALIZERS
+// DATA NORMALIZERS (for upcoming / legacy routes)
 // ============================================
 
 function getStatus(shortStatus) {
@@ -110,6 +123,7 @@ function normalizeFootballMatch(fixture) {
         venue: f.venue?.name || league.name,
         minute: f.status.elapsed ? `${f.status.elapsed}'` : (f.status.short === 'NS' ? new Date(f.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : f.status.long),
         fixtureId: f.id,
+        source: 'api-football',
     };
 }
 
@@ -134,11 +148,11 @@ function normalizeNBAMatch(game) {
         momentum: 50,
         venue: game.arena?.name || 'NBA Arena',
         minute: game.status.short === 'NS' ? new Date(game.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (game.status.long || ''),
+        source: 'api-football',
     };
 }
 
 function normalizeTennisMatch(game) {
-    // Determine status (tennis statuses are often different, but let's assume standard API-Sports)
     return {
         id: game.id,
         sport: 'tennis',
@@ -146,22 +160,22 @@ function normalizeTennisMatch(game) {
         status: getStatus(game.status?.short),
         teamA: {
             name: game.teams?.home?.name || 'Player 1',
-            flag: '\ud83c\udfbe', // 🎾
-            score: game.scores?.home?.score || '-', // simplified
+            flag: '🎾',
+            score: game.scores?.home?.score || '-',
         },
         teamB: {
             name: game.teams?.away?.name || 'Player 2',
-            flag: '\ud83c\udfbe', // 🎾
+            flag: '🎾',
             score: game.scores?.away?.score || '-',
         },
         momentum: 50,
         venue: 'Court',
         minute: game.status?.short === 'NS' ? new Date(game.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        source: 'api-football',
     };
 }
 
 function normalizeF1Race(race) {
-    // F1 race object — show top driver vs runner-up if available
     let teamA = { name: 'Grand Prix', flag: '🏁', score: '' };
     let teamB = { name: 'Track', flag: '🏎️', score: '' };
     if (race.results && Array.isArray(race.results) && race.results.length >= 2) {
@@ -178,18 +192,18 @@ function normalizeF1Race(race) {
         momentum: 50,
         venue: race.circuit?.city || '',
         minute: new Date(race.date).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + new Date(race.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        source: 'api-football',
     };
 }
 
 function normalizeCricketMatch(game) {
-    // CricAPI 'currentMatches' returns mixed status
     const isLive = game.matchStarted && !game.matchEnded;
     const isUpcoming = !game.matchStarted;
 
     return {
         id: game.id,
         sport: 'cricket',
-        league: game.series_id || 'Cricket', // series name often better
+        league: game.name || game.series_id || 'Cricket',
         status: isLive ? 'live' : (isUpcoming ? 'upcoming' : 'finished'),
         teamA: {
             name: game.teamInfo?.[0]?.shortname || game.teamInfo?.[0]?.name || 'Team A',
@@ -203,57 +217,62 @@ function normalizeCricketMatch(game) {
         },
         momentum: 50,
         venue: game.venue || 'Cricket Ground',
-        minute: isUpcoming ? new Date(game.dateTimeGMT).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        minute: isUpcoming ? new Date(game.dateTimeGMT).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (game.status || ''),
+        source: 'cricapi',
     };
 }
 
-
-// ============================================
-// DATA FETCHING
-// ============================================
-
 async function fetchInternal(endpoint) {
-    try {
-        const res = await fetch(`${API_BASE}${endpoint}`);
-        const data = await res.json();
-        return data.response || []; // API-Sports usually puts data in 'response'
-    } catch (e) {
-        console.error(`Fetch error for ${endpoint}:`, e);
-        return [];
+    const res = await fetch(`${API_BASE}${endpoint}`, { cache: 'no-store' });
+    if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `HTTP ${res.status}`);
     }
+    const data = await res.json();
+    return data.response || data.matches || [];
 }
 
 /**
- * Fetch live scores via AI (Gemini + Google Search)
- * This is the PRIMARY data source — searches the internet for real-time scores.
+ * Fetch live matches via unified backend endpoint.
+ * Cricket & football: real APIs first, cached snapshot on failure.
+ * NBA/Tennis/F1: AI only when configured.
  */
-async function fetchAIScores(sport = 'all') {
-    try {
-        if (sport !== 'all' && lastAllAiMatches) {
-            return lastAllAiMatches.filter(match => match.sport === sport);
-        }
-
-        const res = await fetch(`${API_BASE}/api/sports/ai-scores/${sport}?t=${Date.now()}`, {
-            cache: 'no-store',
-            signal: AbortSignal.timeout(30000), // AI search may take up to 30s
-        });
-        const data = await res.json();
-
-        if (data.error || data.fallback) {
-            console.warn('⚠️ AI Scores returned error:', data.error);
-            return null;
-        }
-
-        const matches = data.response || [];
-        if (sport === 'all') {
-            lastAllAiMatches = matches;
-        }
-        console.log(`🔍 AI Scores: ${matches.length} matches (source: ${data.source}, next refresh: ${data.nextRefresh}s)`);
-        return matches;
-    } catch (err) {
-        console.error('❌ AI Scores fetch failed:', err.message);
-        return null;
+export async function fetchLiveMatches(sport = 'all', options = {}) {
+    if (!apiAvailable) {
+        throw new Error('Scores service unavailable. API health check failed.');
     }
+
+    const refreshParam = options.forceRefresh ? '&refresh=1' : '';
+    const url = `${API_BASE}/api/sports/live/${sport}?t=${Date.now()}${refreshParam}`;
+
+    let res;
+    try {
+        res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(45000) });
+    } catch (err) {
+        lastLiveMeta = { source: null, fetchedAt: null, stale: false, error: err.message, matchCount: 0 };
+        throw new Error('Could not reach scores server. Check your connection.');
+    }
+
+    const data = await res.json().catch(() => ({}));
+    const matches = Array.isArray(data.matches) ? data.matches : [];
+
+    lastLiveMeta = {
+        source: data.source || null,
+        fetchedAt: data.fetchedAt || null,
+        stale: Boolean(data.stale),
+        error: data.error || (!res.ok && !matches.length ? (data.error || `HTTP ${res.status}`) : null),
+        matchCount: matches.length,
+    };
+
+    if (!res.ok && matches.length === 0) {
+        throw new Error(data.error || 'No live scores available from configured data sources.');
+    }
+
+    return matches.map(m => ({
+        ...m,
+        stale: m.stale ?? data.stale ?? false,
+        fetchedAt: data.fetchedAt,
+    }));
 }
 
 /**
@@ -264,95 +283,36 @@ export async function fetchUpcomingMatches(sport) {
 
     let results = [];
 
-    if (sport === 'all' || sport === 'football') {
-        const data = await fetchInternal('/api/sports/football/upcoming');
-        if (Array.isArray(data)) results.push(...data.map(normalizeFootballMatch));
-    }
+    try {
+        if (sport === 'all' || sport === 'football') {
+            const data = await fetchInternal('/api/sports/football/upcoming');
+            if (Array.isArray(data)) results.push(...data.map(normalizeFootballMatch));
+        }
 
-    if (sport === 'all' || sport === 'nba') {
-        const data = await fetchInternal('/api/sports/nba/upcoming');
-        if (Array.isArray(data)) results.push(...data.map(normalizeNBAMatch));
-    }
+        if (sport === 'all' || sport === 'nba') {
+            const data = await fetchInternal('/api/sports/nba/upcoming');
+            if (Array.isArray(data)) results.push(...data.map(normalizeNBAMatch));
+        }
 
-    if (sport === 'all' || sport === 'tennis') {
-        const data = await fetchInternal('/api/sports/tennis/upcoming');
-        if (Array.isArray(data)) results.push(...data.map(normalizeTennisMatch));
-    }
+        if (sport === 'all' || sport === 'tennis') {
+            const data = await fetchInternal('/api/sports/tennis/upcoming');
+            if (Array.isArray(data)) results.push(...data.map(normalizeTennisMatch));
+        }
 
-    if (sport === 'all' || sport === 'f1') {
-        const data = await fetchInternal('/api/sports/f1/upcoming');
-        if (Array.isArray(data)) results.push(...data.map(normalizeF1Race));
-    }
+        if (sport === 'all' || sport === 'f1') {
+            const data = await fetchInternal('/api/sports/f1/upcoming');
+            if (Array.isArray(data)) results.push(...data.map(normalizeF1Race));
+        }
 
-    if (sport === 'all' || sport === 'cricket') {
-        // For cricket, fetch upcoming matches from the cricket API endpoint
-        const data = await fetchInternal('/api/sports/cricket/upcoming');
-        if (Array.isArray(data)) results.push(...data.map(normalizeCricketMatch));
+        if (sport === 'all' || sport === 'cricket') {
+            const data = await fetchInternal('/api/sports/cricket/upcoming');
+            if (Array.isArray(data)) results.push(...data.map(normalizeCricketMatch));
+        }
+    } catch (err) {
+        console.warn('[apiService] Upcoming matches fetch failed:', err.message);
     }
 
     return results;
-}
-
-
-/**
- * Fetch live matches across all sports.
- * PRIMARY: AI-powered scores (Gemini + Google Search)
- * FALLBACK 1: RapidAPI endpoints
- */
-export async function fetchLiveMatches(sport = 'all') {
-    if (!apiAvailable) {
-        throw new Error('Scores service unavailable. API health check failed.');
-    }
-
-    // ── PRIMARY: Try AI-powered scores ──
-    if (aiScoresAvailable) {
-        const aiMatches = await fetchAIScores(sport);
-        if (aiMatches && aiMatches.length > 0) {
-            return aiMatches;
-        }
-        console.log('📋 AI returned no matches from primary source. Trying RapidAPI fallback...');
-    } else {
-        console.log('⚠️ AI live scores are not configured. Skipping AI primary source.');
-    }
-
-    if (!rapidApiAvailable) {
-        throw new Error('No live scores are configured. Enable Gemini AI live scores or RapidAPI sports data on the backend.');
-    }
-
-    const results = [];
-
-    if (sport === 'all' || sport === 'football') {
-        const data = await fetchInternal('/api/sports/football/live');
-        if (Array.isArray(data) && data.length > 0) results.push(...data.map(normalizeFootballMatch));
-    }
-
-    if (sport === 'all' || sport === 'nba') {
-        const data = await fetchInternal('/api/sports/nba/live');
-        if (Array.isArray(data) && data.length > 0) results.push(...data.map(normalizeNBAMatch));
-    }
-
-    if (sport === 'all' || sport === 'tennis') {
-        const data = await fetchInternal('/api/sports/tennis/live');
-        if (Array.isArray(data) && data.length > 0) results.push(...data.map(normalizeTennisMatch));
-    }
-
-    if (sport === 'all' || sport === 'cricket') {
-        try {
-            const res = await fetch(`${API_BASE}/api/sports/cricket/live`);
-            const json = await res.json();
-            const list = json.response || [];
-            if (Array.isArray(list) && list.length > 0) results.push(...list.map(normalizeCricketMatch));
-        } catch (err) {
-            console.warn('[apiService] Cricket live fetch failed:', err.message);
-        }
-    }
-
-    if (results.length > 0) {
-        return results;
-    }
-
-    console.error('No live or upcoming matches returned from configured sources.');
-    throw new Error('No live matches available from configured data sources.');
 }
 
 // ============================================
@@ -361,7 +321,7 @@ export async function fetchLiveMatches(sport = 'all') {
 
 export async function fetchAINarrative(matchContext, tone = 'hype') {
     if (!apiAvailable) {
-        return { text: AI_NARRATIVES[tone] || AI_NARRATIVES.hype, source: 'mock' };
+        return { text: null, source: 'unavailable', unavailable: true };
     }
     try {
         const res = await authFetch(`${API_BASE}/api/ai/narrative`, {
@@ -370,29 +330,19 @@ export async function fetchAINarrative(matchContext, tone = 'hype') {
             signal: AbortSignal.timeout(30000),
         });
         const data = await res.json();
-        if (data.fallback || data.error) return { text: AI_NARRATIVES[tone] || AI_NARRATIVES.hype, source: 'mock' };
+        if (data.fallback || data.error || !data.narrative) {
+            return { text: null, source: 'unavailable', unavailable: true };
+        }
         return { text: data.narrative, source: data.source || 'ai', provider: data.provider || 'unknown' };
     } catch (err) {
         console.error('AI narrative error:', err);
-        return { text: AI_NARRATIVES[tone] || AI_NARRATIVES.hype, source: 'mock' };
+        return { text: null, source: 'unavailable', unavailable: true };
     }
 }
 
 export async function fetchPreGamePreview(matchContext) {
-    const MOCK_PREVIEW = {
-        winProbability: { teamA: 50, teamB: 50 },
-        teamAForm: ["W", "W", "D", "L", "W"],
-        teamBForm: ["L", "W", "W", "D", "L"],
-        headToHead: "In their last 5 matchups, Team A won 2, Team B won 2, and 1 ended in a draw.",
-        keyMatchups: [
-            "Attack vs. Defence: Team A's aggressive frontline vs Team B's compact defensive line.",
-            "Midfield Battle: The team that controls the tempo in the middle will dominate the transitions."
-        ],
-        summary: "This match is expected to be closely contested, with both teams showing balanced forms recently. Minor tactical errors will decide the outcome."
-    };
-
     if (!apiAvailable) {
-        return { ...MOCK_PREVIEW, source: 'mock' };
+        return { unavailable: true, source: 'unavailable' };
     }
 
     try {
@@ -404,16 +354,16 @@ export async function fetchPreGamePreview(matchContext) {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (data.error || data.fallback) return { unavailable: true, source: 'unavailable' };
         return { ...data, source: 'ai' };
     } catch (err) {
-        console.warn('[apiService] Pre-game preview fetch failed, using mock:', err);
-        return { ...MOCK_PREVIEW, source: 'mock' };
+        console.warn('[apiService] Pre-game preview fetch failed:', err.message);
+        return { unavailable: true, source: 'unavailable' };
     }
 }
 
-
 export async function fetchMomentumAnalysis(matchContext, events) {
-    if (!apiAvailable) return { ...MOMENTUM_DATA, source: 'mock' };
+    if (!apiAvailable) return { unavailable: true, source: 'unavailable' };
     try {
         const res = await fetch(`${API_BASE}/api/ai/momentum`, {
             method: 'POST',
@@ -422,16 +372,15 @@ export async function fetchMomentumAnalysis(matchContext, events) {
             signal: AbortSignal.timeout(30000),
         });
         const data = await res.json();
-        if (data.fallback || data.error) return { ...MOMENTUM_DATA, source: 'mock' };
+        if (data.fallback || data.error) return { unavailable: true, source: 'unavailable' };
 
-        // Return the full data from the server (already normalized on server side)
         return {
-            teamA: data.teamA || MOMENTUM_DATA.teamA,
-            teamB: data.teamB || MOMENTUM_DATA.teamB,
-            probA: data.probA ?? MOMENTUM_DATA.probA,
-            probB: data.probB ?? MOMENTUM_DATA.probB,
-            points: data.points && data.points.length > 0 ? data.points : MOMENTUM_DATA.points,
-            keyMoments: data.keyMoments && data.keyMoments.length > 0 ? data.keyMoments : MOMENTUM_DATA.keyMoments,
+            teamA: data.teamA,
+            teamB: data.teamB,
+            probA: data.probA,
+            probB: data.probB,
+            points: data.points || [],
+            keyMoments: data.keyMoments || [],
             narrative: data.narrative || '',
             momentum_team: data.momentum_team || '',
             source: data.source || 'ai',
@@ -439,23 +388,13 @@ export async function fetchMomentumAnalysis(matchContext, events) {
         };
     } catch (err) {
         console.error('AI momentum error:', err);
-        return { ...MOMENTUM_DATA, source: 'mock' };
+        return { unavailable: true, source: 'unavailable' };
     }
 }
 
 export async function fetchSocialSentiment(matchContext) {
     if (!apiAvailable) {
-        return {
-            sentiment: 75,
-            label: 'HYPED',
-            summary: 'Fans are buzzing about the current performance and upcoming plays.',
-            reactions: [
-                { user: '@SportyUser', text: 'This match is absolutely insane! What a play! 🔥', type: 'positive' },
-                { user: '@GoalWatcher', text: 'Still waiting for some real action to happen... 😴', type: 'neutral' },
-                { user: '@MatchAddict', text: 'Defense is wide open today, teams need to tighten up!', type: 'negative' }
-            ],
-            hashtags: ['#EpicMatch', '#LiveSports', '#Esportsduniya']
-        };
+        return null;
     }
     try {
         const res = await fetch(`${API_BASE}/api/ai/social-sentiment`, {
@@ -495,3 +434,5 @@ export function connectWebSocket(onMessage) {
 
     return socket;
 }
+
+export { cricApiAvailable, rapidApiAvailable, aiScoresAvailable };

@@ -22,11 +22,12 @@ export function createStandingsPage(gsap) {
         async function renderTable(league) {
             const content = page.querySelector('#standings-content');
             content.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted);">Loading...</div>';
-            const data = await fetchStandings(league);
-            if (!data || data.length === 0) {
-                content.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted);">No data available.</div>';
-                return;
-            }
+            try {
+                const data = await fetchStandings(league);
+                if (!data || data.length === 0) {
+                    content.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted);">No standings data available.</div>';
+                    return;
+                }
             content.innerHTML = `
             <div style="overflow-x:auto;">
             <table class="standings-table" style="width:100%;border-collapse:collapse;margin-top:16px;font-size:1em;background:rgba(255,255,255,0.01);border-radius:10px;overflow:hidden;">
@@ -52,6 +53,9 @@ export function createStandingsPage(gsap) {
                 </tbody>
             </table>
             </div>`;
+            } catch {
+                content.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted);">Standings unavailable right now. Try again later.</div>';
+            }
         }
         tabs.addEventListener('click', e => {
             const btn = e.target.closest('.standings-tab');

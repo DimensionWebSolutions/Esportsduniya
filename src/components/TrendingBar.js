@@ -13,7 +13,12 @@ export function createTrendingBar(navigateTo) {
     try {
       const res = await fetch(`${API_BASE}/api/trending`);
       const data = await res.json();
-      const trending = data.trending || [];
+      const trending = Array.isArray(data) ? data : (data.trending || []);
+
+      if (trending.length === 0) {
+        bar.innerHTML = '<span class="trending-label">🔥 Trending: No activity yet — explore live scores below</span>';
+        return;
+      }
 
       bar.innerHTML = `
         <span class="trending-label">🔥 Trending:</span>
@@ -31,7 +36,7 @@ export function createTrendingBar(navigateTo) {
         });
       });
     } catch {
-      bar.innerHTML = '<span class="trending-label">🔥 Trending: Cricket · Football · NBA</span>';
+      bar.innerHTML = '<span class="trending-label">🔥 Trending unavailable</span>';
     }
   }
 

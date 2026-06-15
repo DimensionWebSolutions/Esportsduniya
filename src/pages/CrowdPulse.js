@@ -2,14 +2,18 @@
    ESPORTSDUNIYA — Crowd Pulse (Innovation Feature)
    ============================================ */
 
-// Fetch real fan pulse data from backend
+// Fetch fan pulse data from backend
 async function fetchCrowdPulse() {
+  const API_BASE = import.meta.env.VITE_API_URL || '';
   try {
-    const res = await fetch('/api/crowdpulse');
+    const res = await fetch(`${API_BASE}/api/crowdpulse`);
     const json = await res.json();
-    return Array.isArray(json.regions) ? json.regions : [];
+    return {
+      regions: Array.isArray(json.regions) ? json.regions : [],
+      source: json.source || 'curated',
+    };
   } catch {
-    return [];
+    return { regions: [], source: 'unavailable' };
   }
 }
 
@@ -21,7 +25,7 @@ export function createCrowdPulse(gsap) {
   page.innerHTML = `
     <div class="section-header" style="text-align:center; margin-bottom:var(--space-10)">
       <h1><span class="accent-dot"></span>Crowd Pulse</h1>
-      <p>Feel the heartbeat of the global fanbase in real-time. Every cheer, every groan — visualized.</p>
+      <p>Feel the heartbeat of the global fanbase. <span class="curated-badge">Curated · Fan Zone</span></p>
     </div>
 
     <div class="pulse-globe-container" id="pulse-globe">
@@ -39,13 +43,13 @@ export function createCrowdPulse(gsap) {
         <div class="pulse-stat-label">Peak Emotion</div>
       </div>
       <div class="glass-card pulse-stat-card">
-        <div class="pulse-stat-value text-fire" id="trending-match">MI vs CSK</div>
-        <div class="pulse-stat-label">Most Watched</div>
+        <div class="pulse-stat-value text-fire" id="trending-match">—</div>
+        <div class="pulse-stat-label">Featured Match</div>
       </div>
     </div>
 
     <div class="pulse-feed" id="pulse-feed">
-      <h3 style="margin-bottom:var(--space-4); font-size:var(--text-xl)">🫀 Live Pulse Feed</h3>
+      <h3 style="margin-bottom:var(--space-4); font-size:var(--text-xl)">🫀 Pulse Feed <span class="curated-badge">Curated · Fan Zone</span></h3>
     </div>
   `;
 
@@ -58,15 +62,16 @@ export function initCrowdPulse(gsap) {
   const container = document.getElementById('pulse-globe');
   let regions = [];
   async function redraw() {
-    regions = await fetchCrowdPulse();
+    const pulse = await fetchCrowdPulse();
+    regions = pulse.regions;
     setupPulseCanvas(canvas, container, regions);
     renderPulseRegions(regions);
+    updateTrendingMatch(regions);
+    animateTotalFans(regions);
   }
   redraw();
   window.addEventListener('resize', redraw);
-  // Live polling for updates
   let pollInterval = setInterval(redraw, 30000);
-  animateTotalFans(regions);
   startPulseFeed(gsap);
   // Cleanup on navigation away
   window.addEventListener('hashchange', () => {
@@ -145,6 +150,13 @@ function renderPulseRegions(regions) {
       </div>
     `;
   }).join('');
+}
+
+function updateTrendingMatch(regions) {
+  const el = document.getElementById('trending-match');
+  if (!el || !regions?.length) return;
+  const top = [...regions].sort((a, b) => (b.intensity || 0) - (a.intensity || 0))[0];
+  el.textContent = top ? `${top.emoji || ''} ${top.name}`.trim() : '—';
 }
 
 function animateTotalFans(regions) {

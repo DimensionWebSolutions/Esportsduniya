@@ -84,8 +84,16 @@ export function initAINarrative() {
 
     // Fetch from API (returns { text, source, provider })
     const result = await fetchAINarrative(matchContext, tone);
-    const narrative = result.text || result;
-    const source = result.source || 'mock';
+
+    if (result.unavailable || !result.text) {
+      if (sourceBadge) sourceBadge.textContent = 'Unavailable';
+      textEl.textContent = 'AI commentary is unavailable right now. Select a live match and try again.';
+      textEl.classList.remove('typing');
+      return;
+    }
+
+    const narrative = result.text;
+    const source = result.source || 'unavailable';
 
     // Update source badge
     if (sourceBadge) {
@@ -98,7 +106,7 @@ export function initAINarrative() {
         sourceBadge.style.background = 'rgba(0,212,255,0.1)';
         sourceBadge.style.color = 'var(--accent-cyber)';
       } else {
-        sourceBadge.textContent = 'Mock Data';
+        sourceBadge.textContent = 'Unavailable';
         sourceBadge.style.background = 'rgba(107,107,128,0.15)';
         sourceBadge.style.color = 'var(--text-muted)';
       }

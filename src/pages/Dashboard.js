@@ -2,7 +2,7 @@
    ESPORTSDUNIYA — Dashboard Page
    ============================================ */
 import { SPORTS } from '../data/mockData.js';
-import { fetchLiveMatches, buildMatchContext, fetchMomentumAnalysis } from '../services/apiService.js';
+import { fetchLiveMatches, buildMatchContext, fetchMomentumAnalysis, getLiveScoresMeta } from '../services/apiService.js';
 import { createMatchCard } from '../components/MatchCard.js';
 import { createMomentumEngine, drawMomentumGraph, animateProbBars, updateMomentumEngine, showMomentumLoading } from '../components/MomentumEngine.js';
 import { createAINarrative, initAINarrative } from '../components/AINarrative.js';
@@ -81,7 +81,7 @@ export function createDashboard(gsap) {
   header.className = 'section-header';
   header.innerHTML = `
     <h1><span class="accent-dot" aria-hidden="true"></span>Live Sports Scores</h1>
-    <p>Real-time live scores for Cricket, Football, NBA, Tennis & F1 — powered by AI-driven internet search.</p>
+    <p>Real-time scores for Cricket & Football from official APIs — NBA, Tennis & F1 via AI when available.</p>
   `;
   page.appendChild(header);
 
@@ -113,7 +113,19 @@ export function createDashboard(gsap) {
   lastUpdated.className = 'last-updated';
   lastUpdated.id = 'last-updated';
   lastUpdated.innerHTML = '<span class="live-indicator" aria-hidden="true"></span> <span>Connecting to live scores...</span>';
-  liveSection.appendChild(lastUpdated);
+
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'live-retry-btn';
+  retryBtn.id = 'live-retry-btn';
+  retryBtn.textContent = '↻ Retry';
+  retryBtn.style.display = 'none';
+  retryBtn.addEventListener('click', () => renderCards(activeSportFilter, true));
+
+  const statusRow = document.createElement('div');
+  statusRow.className = 'live-status-row';
+  statusRow.appendChild(lastUpdated);
+  statusRow.appendChild(retryBtn);
+  liveSection.appendChild(statusRow);
 
   const loader = document.createElement('div');
   loader.id = 'cards-loader';
@@ -144,7 +156,28 @@ export function createDashboard(gsap) {
   page.appendChild(highlightsEl);
 
   // ── renderCards ──
-  async function renderCards(sportFilter) {
+  let activeSportFilter = 'all';
+
+  function formatLiveStatus(meta, matchCount) {
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (meta.error && matchCount === 0) {
+      return { text: `Unable to load scores — ${meta.error}`, state: 'error' };
+    }
+    if (meta.stale && meta.fetchedAt) {
+      const mins = Math.max(1, Math.floor((Date.now() - new Date(meta.fetchedAt).getTime()) / 60000));
+      return { text: `Showing cached scores (updated ${mins}m ago) · ${matchCount} matches`, state: 'cached' };
+    }
+    const sourceLabel = {
+      cricapi: 'CricAPI',
+      'api-football': 'API-Football',
+      'ai-search': 'AI Estimate',
+      'ai-search-cached': 'AI Estimate (cached)',
+    }[meta.source] || (meta.source?.includes('cricapi') ? 'CricAPI + others' : 'Live APIs');
+    return { text: `Live from ${sourceLabel} · ${matchCount} matches · ${time}`, state: 'live' };
+  }
+
+  async function renderCards(sportFilter, forceRefresh = false) {
+    activeSportFilter = sportFilter;
     const { sendNotification } = await import('../components/NotificationHelper.js');
     const loaderEl = document.getElementById('cards-loader');
     const gridEl = document.getElementById('cards-grid');
@@ -153,7 +186,9 @@ export function createDashboard(gsap) {
     if (gridEl) { gridEl.style.display = 'none'; gridEl.innerHTML = ''; }
 
     try {
-      const matches = await fetchLiveMatches(sportFilter);
+      const matches = await fetchLiveMatches(sportFilter, { forceRefresh });
+      const meta = getLiveScoresMeta();
+      const retryEl = document.getElementById('live-retry-btn');
 
       matches.forEach(match => {
         const key = `${match.sport}_${match.id}`;
@@ -180,10 +215,11 @@ export function createDashboard(gsap) {
 
       const updatedEl = document.getElementById('last-updated');
       if (updatedEl) {
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const source = matches[0]?.source === 'ai-search' ? '🔍 AI Search' : '📡 API';
-        updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>Last updated: ${time} · ${matches.length} matches · via ${source}</span>`;
+        const status = formatLiveStatus(meta, matches.length);
+        updatedEl.className = `last-updated status-${status.state}`;
+        updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>${status.text}</span>`;
       }
+      if (retryEl) retryEl.style.display = meta.error && matches.length === 0 ? 'inline-flex' : 'none';
 
       if (loaderEl) loaderEl.style.display = 'none';
       if (gridEl) gridEl.style.display = '';
@@ -216,10 +252,23 @@ export function createDashboard(gsap) {
       }
     } catch (err) {
       console.error('Dashboard render failed:', err);
+      const meta = getLiveScoresMeta();
       if (loaderEl) loaderEl.style.display = 'none';
+      const updatedEl = document.getElementById('last-updated');
+      const retryEl = document.getElementById('live-retry-btn');
+      if (updatedEl) {
+        updatedEl.className = 'last-updated status-error';
+        updatedEl.innerHTML = `<span class="live-indicator" aria-hidden="true"></span> <span>${err.message || 'Live scores unavailable'}</span>`;
+      }
+      if (retryEl) retryEl.style.display = 'inline-flex';
       if (gridEl) {
         gridEl.style.display = '';
-        gridEl.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">Live scores could not be rendered. Please retry.</div>`;
+        gridEl.innerHTML = `
+          <div class="live-error-state" style="grid-column:1/-1;text-align:center;padding:var(--space-10);color:var(--text-muted)">
+            <div style="font-size:var(--text-3xl);margin-bottom:var(--space-4)">⚠️</div>
+            <p>Live scores could not be loaded.</p>
+            <p style="font-size:var(--text-sm);margin-top:var(--space-2)">${err.message || 'Please try again.'}</p>
+          </div>`;
       }
     }
   }
@@ -232,8 +281,7 @@ export function createDashboard(gsap) {
       updateMomentumEngine(data);
     } catch (err) {
       console.error('Momentum fetch error:', err);
-      drawMomentumGraph();
-      animateProbBars();
+      updateMomentumEngine({ unavailable: true });
     }
   }
 
@@ -323,28 +371,4 @@ export function createDashboard(gsap) {
 export function initDashboard() {
   showMomentumLoading();
   initAINarrative();
-  if (!window.__dashboardIntervals) window.__dashboardIntervals = [];
-  startScoreSimulation();
 }
-
-function startScoreSimulation() {
-  const scoreElements = document.querySelectorAll('.team-score');
-  const interval = setInterval(() => {
-    scoreElements.forEach(el => {
-      if (Math.random() > 0.7) {
-        el.style.color = 'var(--accent-neon)';
-        el.style.transform = 'scale(1.15)';
-        el.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
-        setTimeout(() => { el.style.color = ''; el.style.transform = ''; }, 800);
-      }
-    });
-  }, 5000);
-  if (window.__dashboardIntervals) window.__dashboardIntervals.push(interval);
-}
-
-window.addEventListener('hashchange', () => {
-  if (!document.getElementById('dashboard-page') && window.__dashboardIntervals) {
-    window.__dashboardIntervals.forEach(clearInterval);
-    window.__dashboardIntervals = [];
-  }
-});
