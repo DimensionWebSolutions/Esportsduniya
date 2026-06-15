@@ -17,6 +17,7 @@ import mongoose from 'mongoose';
 import cron from 'node-cron';
 import webpush from 'web-push';
 import Stripe from 'stripe';
+import sanitizeHtml from 'sanitize-html';
 
 config(); // Load .env
 
@@ -69,8 +70,87 @@ function optionalAuth(req, res, next) {
 // ============================================
 // DATABASE — MongoDB with in-memory fallback
 // ============================================
-const MONGODB_URI = process.env.MONGODB_URI;
+const DEFAULT_DB_NAME = 'esportsduniya';
 let useDatabase = false;
+let mongoConnectionError = null;
+let mongoUriWarnings = [];
+
+/** Strip quotes/whitespace and fix common Atlas URI mistakes before connecting. */
+function normalizeMongoUri(raw) {
+  if (!raw) return { uri: null, warnings: [], error: null };
+
+  let uri = String(raw).trim().replace(/^["']|["']$/g, '');
+  const warnings = [];
+
+  if (/<[^>]+>/.test(uri)) {
+    return {
+      uri: null,
+      warnings: ['Replace placeholder tokens like <password> or <db_password> with your real password'],
+      error: 'placeholder_in_uri',
+    };
+  }
+
+  if (!uri.startsWith('mongodb+srv://') && !uri.startsWith('mongodb://')) {
+    return {
+      uri: null,
+      warnings: ['MONGODB_URI must start with mongodb+srv:// or mongodb://'],
+      error: 'invalid_protocol',
+    };
+  }
+
+  // Atlas strings copied without a database name: ...mongodb.net/?appName=...
+  if (/\.mongodb\.net\/?(\?|$)/.test(uri)) {
+    uri = uri.replace(/(\.mongodb\.net)\/?(\?|$)/, `$1/${DEFAULT_DB_NAME}$2`);
+    warnings.push(`Added "/${DEFAULT_DB_NAME}" database name to URI (path was missing)`);
+  }
+
+  // Ensure standard query params for Atlas SRV connections
+  if (uri.startsWith('mongodb+srv://')) {
+    if (!/[?&]retryWrites=/.test(uri)) {
+      uri += uri.includes('?') ? '&retryWrites=true' : '?retryWrites=true';
+      warnings.push('Added retryWrites=true to URI');
+    }
+    if (!/[?&]w=/.test(uri)) {
+      uri += '&w=majority';
+    }
+  }
+
+  try {
+    const probe = uri.replace(/^mongodb\+srv:\/\//, 'https://').replace(/^mongodb:\/\//, 'http://');
+    const parsed = new URL(probe);
+    if (!parsed.hostname || !parsed.hostname.includes('.')) {
+      return {
+        uri: null,
+        warnings: ['URI hostname looks invalid — copy the full string from MongoDB Atlas → Connect → Drivers'],
+        error: 'invalid_hostname',
+      };
+    }
+  } catch (err) {
+    return {
+      uri: null,
+      warnings: [
+        'Could not parse MONGODB_URI — check for unencoded special characters in the password (@ # : / ? need URL-encoding)',
+        err.message,
+      ],
+      error: 'parse_failed',
+    };
+  }
+
+  return { uri, warnings, error: null };
+}
+
+const mongoNormalized = normalizeMongoUri(process.env.MONGODB_URI);
+const MONGODB_URI = mongoNormalized.uri;
+mongoUriWarnings = mongoNormalized.warnings;
+
+if (process.env.MONGODB_URI && !MONGODB_URI) {
+  mongoConnectionError = mongoNormalized.error || 'invalid_uri';
+  console.warn('   ⚠️  MongoDB: Invalid MONGODB_URI — using in-memory store');
+  mongoUriWarnings.forEach(msg => console.warn('      ', msg));
+} else if (mongoUriWarnings.length) {
+  console.log('   ℹ️  MongoDB: URI auto-corrected:');
+  mongoUriWarnings.forEach(msg => console.log('      ', msg));
+}
 
 // ── Mongoose User Schema ──
 const userSchema = new mongoose.Schema({
@@ -118,16 +198,32 @@ const articleSchema = new mongoose.Schema({
 const Article = mongoose.models.Article || mongoose.model('Article', articleSchema);
 
 if (MONGODB_URI) {
-  mongoose.connect(MONGODB_URI)
+  mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
     .then(() => {
       useDatabase = true;
+      mongoConnectionError = null;
       console.log('   ✅ MongoDB: Connected');
     })
     .catch(err => {
+      useDatabase = false;
+      mongoConnectionError = err.message;
       console.warn('   ⚠️  MongoDB: Connection failed — falling back to in-memory store');
       console.warn('   ', err.message);
+      if (/bad auth|authentication failed/i.test(err.message)) {
+        console.warn('      Hint: verify username/password in Atlas → Database Access, and URL-encode special chars in password');
+      }
     });
-} else {
+
+  mongoose.connection.on('disconnected', () => {
+    useDatabase = false;
+    console.warn('   ⚠️  MongoDB: Disconnected — using in-memory store until reconnected');
+  });
+  mongoose.connection.on('reconnected', () => {
+    useDatabase = true;
+    mongoConnectionError = null;
+    console.log('   ✅ MongoDB: Reconnected');
+  });
+} else if (!process.env.MONGODB_URI) {
   console.log('   ℹ️  MongoDB: No MONGODB_URI set — using in-memory store (data resets on restart)');
 }
 
@@ -170,9 +266,10 @@ function safeUser(user) {
 
 // ── Article DB helpers (unified API for in-memory + MongoDB) ──
 async function dbSaveArticle(data) {
+  const safe = { ...data, contentHtml: sanitizeArticleHtml(data.contentHtml) };
   if (useDatabase) {
     try {
-      const article = new Article(data);
+      const article = new Article(safe);
       await article.save();
       return article.toObject();
     } catch (err) {
@@ -180,9 +277,9 @@ async function dbSaveArticle(data) {
       throw err;
     }
   }
-  if (articles.some(a => a.slug === data.slug)) return null;
-  articles.push(data);
-  return data;
+  if (articles.some(a => a.slug === safe.slug)) return null;
+  articles.push(safe);
+  return safe;
 }
 
 async function dbFindArticleBySlug(slug) {
@@ -786,6 +883,12 @@ const hasGemini = isKeySet(GEMINI_API_KEY, 'your_gemini_key_here');
 
 // ── Health check ──
 app.get('/api/health', (req, res) => {
+  const dbStatus = useDatabase
+    ? 'mongodb'
+    : process.env.MONGODB_URI
+      ? (mongoConnectionError ? 'connection-failed' : 'connecting')
+      : 'in-memory';
+
   res.json({
     status: 'ok',
     apis: {
@@ -793,10 +896,12 @@ app.get('/api/health', (req, res) => {
       aiScores: hasGemini ? 'configured' : 'missing',
       openai: hasOpenAI ? 'configured' : 'missing',
       gemini: hasGemini ? 'configured' : 'missing',
-      database: useDatabase ? 'mongodb' : 'in-memory',
+      database: dbStatus,
       push: (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) ? 'configured' : 'missing',
       premium: stripe ? 'configured' : 'missing',
     },
+    ...(mongoConnectionError && { databaseError: mongoConnectionError }),
+    ...(mongoUriWarnings.length && !useDatabase && { databaseUriHints: mongoUriWarnings }),
   });
 });
 
@@ -2825,6 +2930,33 @@ function makeSlug(title) {
     .replace(/-$/, '');
 }
 
+// Normalize incoming URL slug: lowercase first, then strip invalid chars
+function normalizeSlug(raw) {
+  return String(raw || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+}
+
+// Allowlist sanitizer for AI-generated article HTML (blocks XSS / event handlers)
+const ARTICLE_HTML_OPTIONS = {
+  allowedTags: ['h2', 'h3', 'p', 'ul', 'ol', 'li', 'strong', 'em', 'a'],
+  allowedAttributes: { a: ['href', 'target', 'rel'] },
+  allowedSchemes: ['http', 'https'],
+  disallowedTagsMode: 'discard',
+  transformTags: {
+    a: (_tagName, attribs) => ({
+      tagName: 'a',
+      attribs: {
+        href: attribs.href,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+      },
+    }),
+  },
+};
+
+function sanitizeArticleHtml(html) {
+  return sanitizeHtml(html || '', ARTICLE_HTML_OPTIONS);
+}
+
 // Step 1 — Ask Gemini (with Google Search) for today's trending sports topics
 async function discoverArticleTopics() {
   if (!hasGemini) return [];
@@ -2940,7 +3072,7 @@ Return a single JSON object — no markdown, no extra text:
       metaDescription: (metaDescription || '').slice(0, 160),
       category: topic.category || 'general',
       keywords: topic.keywords || [],
-      contentHtml: contentHtml || '',
+      contentHtml: sanitizeArticleHtml(contentHtml || ''),
       wordCount,
       readTime,
       publishedAt: new Date(),
@@ -3071,9 +3203,10 @@ app.get('/api/blog', async (req, res) => {
 
 app.get('/api/blog/:slug', async (req, res) => {
   try {
-    const article = await dbFindArticleBySlug(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
+    const article = await dbFindArticleBySlug(slug);
     if (!article) return res.status(404).json({ error: 'Article not found' });
-    res.json(article);
+    res.json({ ...article, contentHtml: sanitizeArticleHtml(article.contentHtml) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch article' });
   }
@@ -3156,7 +3289,7 @@ app.get('/blog', async (req, res) => {
 // ── Blog route: SSR HTML article page (Google-indexable) ──
 app.get('/blog/:slug', async (req, res) => {
   try {
-    const slug = req.params.slug.replace(/[^a-z0-9-]/g, '');
+    const slug = normalizeSlug(req.params.slug);
     const article = await dbFindArticleBySlug(slug);
     if (!article) {
       res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -3249,7 +3382,7 @@ app.get('/blog/:slug', async (req, res) => {
   </div>
   <div class="blog-content-wrap">
     <article class="blog-content">
-      ${article.contentHtml}
+      ${sanitizeArticleHtml(article.contentHtml)}
       <div class="blog-cta-box">
         <h3>Follow Live Scores on Esportsduniya</h3>
         <p>Get real-time scores, AI predictions, and fan insights — all in one place</p>
@@ -3355,5 +3488,7 @@ httpServer.listen(PORT, () => {
   console.log(`   ${hasRapidAPI ? '✅' : '❌'} RapidAPI Sports: ${hasRapidAPI ? 'Configured' : 'Missing'}`);
   console.log(`   ${hasOpenAI ? '✅' : '❌'} OpenAI:          ${hasOpenAI ? 'Configured' : 'Missing'}`);
   console.log(`   ${hasGemini ? '✅' : '❌'} Gemini:          ${hasGemini ? 'Configured' : 'Missing (REQUIRED for AI Scores)'}`);
+  const dbLabel = useDatabase ? 'Connected' : process.env.MONGODB_URI ? (mongoConnectionError ? 'Failed (in-memory fallback)' : 'Connecting…') : 'Not configured (in-memory)';
+  console.log(`   ${useDatabase ? '✅' : process.env.MONGODB_URI ? '⚠️ ' : 'ℹ️ '} MongoDB:         ${dbLabel}`);
   console.log(`\n   ${hasGemini ? '🔍 AI-Powered Live Scores: ENABLED (60s cache)' : '⚠️  AI-Powered Live Scores: DISABLED — Set GEMINI_API_KEY in .env'}\n`);
 });

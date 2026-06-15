@@ -1,5 +1,5 @@
 # ── Blog: proxy to Render backend so /blog/* are real, Google-indexable URLs ──
-# Replace YOUR-APP with your actual Render app name before deploying.
+/blog https://esportsduniya.onrender.com/blog 200
 /blog/* https://esportsduniya.onrender.com/blog/:splat 200
 /sitemap-blog.xml https://esportsduniya.onrender.com/sitemap-blog.xml 200
 
