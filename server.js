@@ -1723,12 +1723,90 @@ function parseJsonObjectFromText(rawText) {
   try {
     return JSON.parse(text);
   } catch {
-    const objects = extractJsonObjects(text);
-    if (objects.length > 0) {
-      return JSON.parse(objects[0]);
+    try {
+      return JSON.parse(repairJsonText(text));
+    } catch {
+      const objects = extractJsonObjects(text);
+      if (objects.length > 0) {
+        try {
+          return JSON.parse(objects[0]);
+        } catch {
+          return JSON.parse(repairJsonText(objects[0]));
+        }
+      }
+      throw new Error('Could not parse JSON object from text');
     }
-    throw new Error('Could not parse JSON object from text');
   }
+}
+
+/** Fix common LLM JSON mistakes (trailing commas, smart quotes). */
+function repairJsonText(jsonStr) {
+  return jsonStr
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/,\s*([}\]])/g, '$1');
+}
+
+/** Concatenate all text parts from a Gemini response (search grounding may split output). */
+function getGeminiText(data) {
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  return parts.filter(p => p.text).map(p => p.text).join('').trim();
+}
+
+function parseJsonArrayFromText(rawText) {
+  let text = (rawText || '').trim();
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) text = fenceMatch[1].trim();
+
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start !== -1 && end !== -1 && end > start) {
+    text = text.slice(start, end + 1);
+  } else if (start !== -1 && !text.endsWith(']')) {
+    // Truncated array from maxOutputTokens — try closing the bracket
+    text = text.slice(start) + ']';
+  }
+
+  for (const candidate of [text, repairJsonText(text)]) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* try next strategy */ }
+  }
+
+  // Fallback: parse each top-level object individually
+  const objects = extractJsonObjects(text);
+  const items = [];
+  for (const objStr of objects) {
+    for (const candidate of [objStr, repairJsonText(objStr)]) {
+      try {
+        items.push(JSON.parse(candidate));
+        break;
+      } catch { /* try repaired version */ }
+    }
+  }
+  if (items.length > 0) return items;
+
+  throw new Error('Could not parse JSON array from text');
+}
+
+function normalizeBlogTopic(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = String(raw.title || '').trim();
+  if (!title) return null;
+  const validCategories = new Set(['cricket', 'football', 'nba', 'tennis', 'f1', 'general']);
+  let category = String(raw.category || 'general').toLowerCase().trim();
+  if (!validCategories.has(category)) category = 'general';
+  const keywords = Array.isArray(raw.keywords)
+    ? raw.keywords.map(k => String(k).trim()).filter(Boolean).slice(0, 8)
+    : [];
+  return {
+    title,
+    searchQuery: String(raw.searchQuery || title).trim(),
+    category,
+    keywords,
+    angle: String(raw.angle || '').trim() || `Latest news and analysis on ${title} for Indian sports fans.`,
+  };
 }
 
 app.post('/api/ai/fifa-prediction', async (req, res) => {
@@ -2010,70 +2088,6 @@ function normalizeAIMatch(match, index) {
     minute: match.detail || match.startTime || '',
     source: 'ai-search',
   };
-}
-
-function parseJsonArrayFromText(rawText) {
-  let jsonStr = (rawText || '[]').trim();
-  const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
-  const tryParse = (candidate) => {
-    try {
-      const parsed = JSON.parse(candidate);
-      return Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const arrayStart = jsonStr.indexOf('[');
-  const arrayEnd = jsonStr.lastIndexOf(']');
-  if (arrayStart !== -1) {
-    if (arrayEnd !== -1 && arrayEnd > arrayStart) {
-      const candidate = jsonStr.slice(arrayStart, arrayEnd + 1);
-      const parsed = tryParse(candidate);
-      if (parsed) return parsed;
-    }
-
-    if (!jsonStr.endsWith(']')) {
-      const candidate = jsonStr.slice(arrayStart) + ']';
-      const parsed = tryParse(candidate);
-      if (parsed) return parsed;
-    }
-  }
-
-  const objectCandidates = extractJsonObjects(jsonStr);
-  if (objectCandidates.length > 0) {
-    const recovered = objectCandidates
-      .map((obj) => {
-        try {
-          return JSON.parse(obj);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
-    if (recovered.length > 0) return recovered;
-  }
-
-  const candidates = [
-    jsonStr,
-    jsonStr.replace(/,\s*([}\]])/g, '$1'),
-  ];
-
-  let lastError;
-  for (const candidate of candidates) {
-    const parsed = tryParse(candidate);
-    if (parsed) return parsed;
-    try {
-      JSON.parse(candidate);
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  console.error('   ⚠️ AI response parse error. Raw:', jsonStr.slice(0, 800));
-  throw lastError || new Error('Could not parse AI response as JSON array');
 }
 
 async function fetchScoresViaGemini(sport) {
@@ -2992,7 +3006,23 @@ Return a JSON array of exactly 5 objects:
   }
 ]
 
-Return ONLY valid JSON. No markdown fences. No extra text.`;
+Return ONLY valid JSON. No markdown fences. No extra text.
+Rules for JSON strings: escape every double quote inside a value with backslash (e.g. Kohli\\'s). Do not use unescaped line breaks inside string values.`;
+
+  const topicSchema = {
+    type: 'ARRAY',
+    items: {
+      type: 'OBJECT',
+      properties: {
+        title: { type: 'STRING' },
+        searchQuery: { type: 'STRING' },
+        category: { type: 'STRING' },
+        keywords: { type: 'ARRAY', items: { type: 'STRING' } },
+        angle: { type: 'STRING' },
+      },
+      required: ['title', 'searchQuery', 'category', 'keywords', 'angle'],
+    },
+  };
 
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -3002,20 +3032,57 @@ Return ONLY valid JSON. No markdown fences. No extra text.`;
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 4096,
+          responseMimeType: 'application/json',
+          responseSchema: topicSchema,
+        },
       }),
     });
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      throw new Error(`Gemini ${resp.status}: ${errBody.slice(0, 200)}`);
+    }
     const data = await resp.json();
-    let raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim();
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fence) raw = fence[1].trim();
-    const s = raw.indexOf('['), e = raw.lastIndexOf(']');
-    if (s !== -1 && e !== -1) raw = raw.slice(s, e + 1);
-    return JSON.parse(raw);
+    const raw = getGeminiText(data);
+    if (!raw) throw new Error('Empty response from Gemini');
+
+    let topics;
+    try {
+      topics = parseJsonArrayFromText(raw);
+    } catch (parseErr) {
+      console.warn('   ⚠️  Blog: Structured JSON parse failed, retrying without schema…', parseErr.message);
+      topics = await discoverArticleTopicsFallback(prompt);
+    }
+
+    return topics.map(normalizeBlogTopic).filter(Boolean);
   } catch (err) {
     console.error('   ❌ Blog: Topic discovery failed:', err.message);
     return [];
   }
+}
+
+/** Retry topic discovery without responseSchema when structured output + search fails. */
+async function discoverArticleTopicsFallback(prompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+    }),
+  });
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    throw new Error(`Gemini fallback ${resp.status}: ${errBody.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const raw = getGeminiText(data);
+  if (!raw) throw new Error('Empty fallback response from Gemini');
+  return parseJsonArrayFromText(raw);
 }
 
 // Step 2 — Ask Gemini to write a full 1500-2000 word SEO article for a topic
@@ -3059,16 +3126,25 @@ Return a single JSON object — no markdown, no extra text:
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.5, maxOutputTokens: 8192 },
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              metaDescription: { type: 'STRING' },
+              contentHtml: { type: 'STRING' },
+            },
+            required: ['metaDescription', 'contentHtml'],
+          },
+        },
       }),
     });
     const data = await resp.json();
-    let raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '{}').trim();
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fence) raw = fence[1].trim();
-    const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-    if (s !== -1 && e !== -1) raw = raw.slice(s, e + 1);
-    const { metaDescription, contentHtml } = JSON.parse(raw);
+    const raw = getGeminiText(data);
+    if (!raw) throw new Error('Empty response from Gemini');
+    const { metaDescription, contentHtml } = parseJsonObjectFromText(raw);
 
     const wordCount = (contentHtml || '').replace(/<[^>]+>/g, '').split(/\s+/).filter(Boolean).length;
     const readTime = Math.max(1, Math.ceil(wordCount / 200));
