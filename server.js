@@ -2942,14 +2942,21 @@ const ARTICLE_HTML_OPTIONS = {
   allowedSchemes: ['http', 'https'],
   disallowedTagsMode: 'discard',
   transformTags: {
-    a: (_tagName, attribs) => ({
-      tagName: 'a',
-      attribs: {
-        href: attribs.href,
-        target: '_blank',
-        rel: 'noopener noreferrer',
-      },
-    }),
+    a: (_tagName, attribs) => {
+      const href = typeof attribs?.href === 'string' ? attribs.href.trim() : '';
+      if (!href || !/^https?:\/\//i.test(href)) {
+        // No valid href — unwrap to span so inner text is kept without a broken/dangerous link
+        return { tagName: 'span', attribs: {} };
+      }
+      return {
+        tagName: 'a',
+        attribs: {
+          href,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        },
+      };
+    },
   },
 };
 
