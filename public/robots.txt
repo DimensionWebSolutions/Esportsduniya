@@ -4,7 +4,8 @@ Allow: /
 Disallow: /api/
 
 # Sitemaps
-Sitemap: https://esportsduniya.com/sitemap.xml
+Sitemap: https://www.esportsduniya.in/sitemap.xml
+Sitemap: https://www.esportsduniya.in/sitemap-blog.xml
 
 # Crawl delay (be nice to our server)
 Crawl-delay: 1

@@ -41,9 +41,10 @@ import { checkApiHealth, fetchLiveMatches } from './services/apiService.js';
 import { registerServiceWorker, startReminderChecker } from './components/NotificationHelper.js';
 import { initLiveScoreManager } from './services/LiveScoreManager.js';
 
-// Admin and Analytics pages (React)
+// Admin, Analytics and Blog pages (React)
 import AdminPanel from './pages/Admin.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
+import BlogIndex from './pages/BlogIndex.jsx';
 
 // GSAP
 import { gsap } from 'gsap';
@@ -388,6 +389,7 @@ function navigateTo(pageId) {
 
     // Treat sport filters as dashboard views
     const sportPages = ['cricket', 'football', 'nba', 'tennis', 'f1', 'standings'];
+    // 'blog' has its own React case — never treat it as a sport filter or dashboard
     const isSportFilter = sportPages.includes(pageId);
     let actualPage = isSportFilter ? 'dashboard' : pageId;
     let matchId = null;
@@ -420,6 +422,7 @@ function navigateTo(pageId) {
         profile: 'My Profile — Esportsduniya',
         admin: 'Admin Panel — Esportsduniya',
         analytics: 'Analytics — Esportsduniya',
+        blog: 'Sports Blog — Cricket, Football & F1 News | Esportsduniya',
     };
     document.title = titles[pageId] || 'Esportsduniya — Live Sports Scores & AI Insights';
 
@@ -495,6 +498,14 @@ function navigateTo(pageId) {
                     main.appendChild(container);
                     currentReactRoot = ReactDOM.createRoot(container);
                     currentReactRoot.render(React.createElement(AnalyticsPage));
+                    break;
+                }
+                case 'blog': {
+                    const container = document.createElement('div');
+                    container.id = 'blog-react-root';
+                    main.appendChild(container);
+                    currentReactRoot = ReactDOM.createRoot(container);
+                    currentReactRoot.render(React.createElement(BlogIndex));
                     break;
                 }
                 case 'fifa':

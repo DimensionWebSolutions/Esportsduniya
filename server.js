@@ -101,6 +101,22 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
+// ── Mongoose Article Schema ──
+const articleSchema = new mongoose.Schema({
+  slug:            { type: String, required: true, unique: true },
+  title:           { type: String, required: true },
+  metaDescription: { type: String, required: true },
+  category:        { type: String, default: 'general' },
+  keywords:        { type: [String], default: [] },
+  contentHtml:     { type: String, required: true },
+  wordCount:       { type: Number, default: 0 },
+  readTime:        { type: Number, default: 5 },
+  publishedAt:     { type: Date, default: Date.now },
+  imageUrl:        { type: String, default: '' },
+}, { timestamps: true });
+
+const Article = mongoose.models.Article || mongoose.model('Article', articleSchema);
+
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI)
     .then(() => {
@@ -152,8 +168,40 @@ function safeUser(user) {
   return safe;
 }
 
-// ── Fan Engagement: Activity counters for trending ──
+// ── Article DB helpers (unified API for in-memory + MongoDB) ──
+async function dbSaveArticle(data) {
+  if (useDatabase) {
+    try {
+      const article = new Article(data);
+      await article.save();
+      return article.toObject();
+    } catch (err) {
+      if (err.code === 11000) return null; // duplicate slug — skip silently
+      throw err;
+    }
+  }
+  if (articles.some(a => a.slug === data.slug)) return null;
+  articles.push(data);
+  return data;
+}
+
+async function dbFindArticleBySlug(slug) {
+  if (useDatabase) return Article.findOne({ slug }).lean();
+  return articles.find(a => a.slug === slug) || null;
+}
+
+async function dbGetArticles(limit = 50, category = null) {
+  if (useDatabase) {
+    const query = category ? { category } : {};
+    return Article.find(query).sort({ publishedAt: -1 }).limit(limit).lean();
+  }
+  const pool = category ? articles.filter(a => a.category === category) : articles;
+  return [...pool].sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt)).slice(0, limit);
+}
+
+// ── In-memory stores ──
 const users = []; // In-memory fallback (used when MONGODB_URI is not set)
+let articles = []; // In-memory article store (upgrades to MongoDB when connected)
 const fanZoneState = new Map();
 const predictionState = new Map();
 
@@ -2760,6 +2808,514 @@ app.get('/api/premium/status/:username', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Could not check premium status.' });
   }
+});
+
+// ============================================
+// BLOG — Automated SEO Article System
+// ============================================
+
+// Helper: turn a title into a URL-safe slug
+function makeSlug(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 80)
+    .replace(/-$/, '');
+}
+
+// Step 1 — Ask Gemini (with Google Search) for today's trending sports topics
+async function discoverArticleTopics() {
+  if (!hasGemini) return [];
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const prompt = `Today is ${today}. You are a sports content strategist for an Indian sports website (esportsduniya.in).
+
+Search the web and find 5 specific, currently trending sports topics that Indian sports fans are searching for RIGHT NOW.
+
+Focus on:
+- Live cricket: IPL, ICC tournaments, bilateral series happening this week
+- Football: Premier League, Champions League, La Liga, transfer window news
+- FIFA 2026 World Cup news and team updates
+- NBA finals, Tennis Grand Slams, F1 race weekends
+- Indian sports heroes: Virat Kohli, Rohit Sharma, records, controversies
+
+For each topic, provide the high-volume search query an Indian fan would actually Google.
+
+Return a JSON array of exactly 5 objects:
+[
+  {
+    "title": "SEO-optimized article title including team names, tournament, and year",
+    "searchQuery": "exact Google search query this article targets",
+    "category": "cricket|football|nba|tennis|f1|general",
+    "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+    "angle": "Brief 2-sentence description of the article angle and what makes it useful"
+  }
+]
+
+Return ONLY valid JSON. No markdown fences. No extra text.`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+      }),
+    });
+    const data = await resp.json();
+    let raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim();
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) raw = fence[1].trim();
+    const s = raw.indexOf('['), e = raw.lastIndexOf(']');
+    if (s !== -1 && e !== -1) raw = raw.slice(s, e + 1);
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error('   ❌ Blog: Topic discovery failed:', err.message);
+    return [];
+  }
+}
+
+// Step 2 — Ask Gemini to write a full 1500-2000 word SEO article for a topic
+async function writeArticle(topic) {
+  if (!hasGemini) return null;
+  const slug = makeSlug(topic.title);
+  const prompt = `Write a comprehensive, SEO-optimized sports news article for an Indian sports website.
+
+Article brief:
+- Title: ${topic.title}
+- Target keywords: ${topic.keywords.join(', ')}
+- Angle: ${topic.angle}
+- Target Google query: "${topic.searchQuery}"
+
+REQUIREMENTS:
+1. Length: 1500-2000 words
+2. Start with a strong 2-3 sentence intro that naturally includes the primary keyword
+3. Use <h2> and <h3> subheadings — NEVER <h1> (that is the page title)
+4. Include real stats, match details, historical context, and expert-style analysis
+5. Indian audience context: mention IST timezone, India viewership, Indian players
+6. Add these internal links using the exact anchor text shown:
+   - "live cricket scores" → https://www.esportsduniya.in/#cricket
+   - "football live scores" → https://www.esportsduniya.in/#football
+   - "NBA scores today" → https://www.esportsduniya.in/#nba
+   - "live sports scores" → https://www.esportsduniya.in/#dashboard
+   - "AI sports predictions" → https://www.esportsduniya.in/#crowdpulse
+7. End with a clear CTA paragraph linking to the relevant live scores section on the site
+8. Only use these HTML tags: <h2> <h3> <p> <ul> <li> <strong> <em> <a href="..." target="_blank" rel="noopener noreferrer">
+
+Return a single JSON object — no markdown, no extra text:
+{
+  "metaDescription": "One compelling sentence, 120-155 characters, includes primary keyword",
+  "contentHtml": "Full article HTML content"
+}`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.5, maxOutputTokens: 8192 },
+      }),
+    });
+    const data = await resp.json();
+    let raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '{}').trim();
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) raw = fence[1].trim();
+    const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+    if (s !== -1 && e !== -1) raw = raw.slice(s, e + 1);
+    const { metaDescription, contentHtml } = JSON.parse(raw);
+
+    const wordCount = (contentHtml || '').replace(/<[^>]+>/g, '').split(/\s+/).filter(Boolean).length;
+    const readTime = Math.max(1, Math.ceil(wordCount / 200));
+
+    return {
+      slug,
+      title: topic.title,
+      metaDescription: (metaDescription || '').slice(0, 160),
+      category: topic.category || 'general',
+      keywords: topic.keywords || [],
+      contentHtml: contentHtml || '',
+      wordCount,
+      readTime,
+      publishedAt: new Date(),
+    };
+  } catch (err) {
+    console.error(`   ❌ Blog: Writing failed for "${topic.title}":`, err.message);
+    return null;
+  }
+}
+
+// Step 3 — Orchestrate: discover topics → write 3 new articles
+async function generateDailyArticles() {
+  if (!hasGemini) {
+    console.log('   ℹ️  Blog: Skipping article generation — GEMINI_API_KEY not set');
+    return;
+  }
+  console.log('   📝 Blog: Discovering trending topics...');
+  const topics = await discoverArticleTopics();
+  if (!topics.length) { console.log('   ⚠️  Blog: No topics returned'); return; }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const existing = await dbGetArticles(200);
+  const todaySlugs = new Set(
+    existing
+      .filter(a => new Date(a.publishedAt).toISOString().split('T')[0] === todayStr)
+      .map(a => a.slug)
+  );
+
+  let written = 0;
+  for (const topic of topics) {
+    if (written >= 3) break;
+    const slug = makeSlug(topic.title);
+    if (todaySlugs.has(slug)) { console.log(`   ⏭️  Blog: Already published "${topic.title}"`); continue; }
+
+    console.log(`   ✍️  Blog: Writing "${topic.title}"...`);
+    const article = await writeArticle(topic);
+    if (article) {
+      const saved = await dbSaveArticle(article);
+      if (saved) {
+        console.log(`   ✅ Blog: Published /blog/${article.slug} (${article.wordCount} words)`);
+        written++;
+      }
+    }
+    // Pause between Gemini calls to avoid rate limiting
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  console.log(`   📰 Blog: ${written} article(s) published this run`);
+}
+
+// Cron: run at 6 AM, 12 PM, 6 PM UTC every day
+cron.schedule('0 6,12,18 * * *', async () => {
+  console.log('   ⏰ Blog Cron: Starting automated article generation');
+  await generateDailyArticles();
+});
+
+// Generate articles on startup (after a short delay so the server is ready)
+setTimeout(() => {
+  generateDailyArticles().catch(err => console.error('   ❌ Blog startup generation failed:', err.message));
+}, 15000);
+
+// ── Blog CSS (inlined into SSR pages) ──
+const BLOG_CSS = `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0f;color:#e0e0e8;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:18px;line-height:1.75;-webkit-font-smoothing:antialiased}
+a{color:#1ee6a7;text-decoration:none}a:hover{text-decoration:underline}
+img{max-width:100%;height:auto}
+.blog-header{background:rgba(10,10,20,0.95);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,0.07);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.blog-header-logo{font-size:1.3rem;font-weight:700;color:#fff;text-decoration:none;display:flex;align-items:center;gap:8px}
+.blog-header-logo span{color:#1ee6a7}
+.blog-header-nav{display:flex;gap:16px;align-items:center}
+.blog-header-nav a{color:#aaa;font-size:0.9rem;transition:color .2s}
+.blog-header-nav a:hover{color:#fff;text-decoration:none}
+.blog-hero{background:linear-gradient(135deg,#0d0d1a 0%,#111128 100%);border-bottom:1px solid rgba(30,230,167,0.12);padding:48px 24px 40px}
+.blog-hero-inner{max-width:820px;margin:0 auto}
+.blog-category-badge{display:inline-block;background:rgba(30,230,167,0.15);color:#1ee6a7;border:1px solid rgba(30,230,167,0.3);border-radius:20px;padding:4px 14px;font-size:0.75rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:16px}
+.blog-title{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:800;line-height:1.2;color:#fff;margin-bottom:16px;letter-spacing:-.02em}
+.blog-meta{display:flex;align-items:center;gap:16px;color:#888;font-size:0.85rem;flex-wrap:wrap}
+.blog-meta strong{color:#bbb}
+.blog-meta .dot{opacity:.4}
+.blog-content-wrap{max-width:820px;margin:0 auto;padding:48px 24px 80px}
+.blog-content h2{font-size:1.55rem;font-weight:700;color:#fff;margin:2.5rem 0 1rem;line-height:1.3;border-left:3px solid #1ee6a7;padding-left:14px}
+.blog-content h3{font-size:1.2rem;font-weight:600;color:#d0d0e0;margin:2rem 0 .75rem;line-height:1.4}
+.blog-content p{margin-bottom:1.4rem;color:#c8c8d8}
+.blog-content ul,.blog-content ol{margin:0 0 1.4rem 1.5rem}
+.blog-content li{margin-bottom:.5rem;color:#c8c8d8}
+.blog-content strong{color:#fff;font-weight:600}
+.blog-content em{color:#aaa;font-style:italic}
+.blog-content a{color:#1ee6a7;font-weight:500;border-bottom:1px solid rgba(30,230,167,0.3);transition:border-color .2s}
+.blog-content a:hover{border-color:#1ee6a7;text-decoration:none}
+.blog-cta-box{background:linear-gradient(135deg,rgba(30,230,167,0.1),rgba(30,100,230,0.1));border:1px solid rgba(30,230,167,0.25);border-radius:16px;padding:28px 32px;margin:3rem 0;text-align:center}
+.blog-cta-box h3{color:#1ee6a7;margin-bottom:10px;font-size:1.2rem}
+.blog-cta-box p{color:#aaa;margin-bottom:18px;font-size:0.95rem}
+.blog-cta-box a{display:inline-block;background:#1ee6a7;color:#000;font-weight:700;padding:12px 28px;border-radius:24px;font-size:0.95rem;transition:opacity .2s;border:none}
+.blog-cta-box a:hover{opacity:.9;text-decoration:none}
+.blog-keywords{margin-top:2rem;padding-top:1.5rem;border-top:1px solid rgba(255,255,255,0.07)}
+.blog-keywords span{display:inline-block;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 10px;font-size:0.75rem;color:#888;margin:4px}
+.blog-listing-wrap{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+.blog-listing-header{margin-bottom:36px}
+.blog-listing-header h1{font-size:2.2rem;font-weight:800;color:#fff;margin-bottom:8px}
+.blog-listing-header p{color:#888;font-size:1rem}
+.blog-grid{display:grid;gap:20px}
+.blog-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px;transition:border-color .2s,transform .2s;text-decoration:none;display:block}
+.blog-card:hover{border-color:rgba(30,230,167,0.3);transform:translateY(-2px);text-decoration:none}
+.blog-card-cat{font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#1ee6a7;margin-bottom:10px}
+.blog-card-title{font-size:1.15rem;font-weight:700;color:#fff;line-height:1.4;margin-bottom:10px}
+.blog-card-desc{font-size:0.88rem;color:#888;line-height:1.6;margin-bottom:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.blog-card-meta{font-size:0.78rem;color:#555;display:flex;gap:12px}
+.blog-footer{border-top:1px solid rgba(255,255,255,0.07);padding:32px 24px;text-align:center;color:#555;font-size:0.85rem}
+.blog-footer a{color:#1ee6a7}
+@media(max-width:600px){.blog-hero{padding:32px 16px 28px}.blog-content-wrap,.blog-listing-wrap{padding:32px 16px 60px}.blog-title{font-size:1.6rem}.blog-header{padding:14px 16px}.blog-content h2{font-size:1.3rem}}
+`;
+
+// ── Blog route: JSON API (used by the SPA BlogIndex.jsx) ──
+app.get('/api/blog', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+    const category = req.query.category || null;
+    const list = await dbGetArticles(limit, category);
+    res.json(list.map(a => ({
+      slug: a.slug, title: a.title, metaDescription: a.metaDescription,
+      category: a.category, keywords: a.keywords, wordCount: a.wordCount,
+      readTime: a.readTime, publishedAt: a.publishedAt,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch articles' });
+  }
+});
+
+app.get('/api/blog/:slug', async (req, res) => {
+  try {
+    const article = await dbFindArticleBySlug(req.params.slug);
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+    res.json(article);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch article' });
+  }
+});
+
+// ── Blog route: SSR HTML listing (Google-indexable) ──
+app.get('/blog', async (req, res) => {
+  try {
+    const list = await dbGetArticles(20);
+    const cardsHtml = list.length
+      ? list.map(a => {
+          const pubDate = new Date(a.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+          return `<a class="blog-card" href="/blog/${escapeHtml(a.slug)}">
+            <div class="blog-card-cat">${escapeHtml(a.category)}</div>
+            <div class="blog-card-title">${escapeHtml(a.title)}</div>
+            <div class="blog-card-desc">${escapeHtml(a.metaDescription)}</div>
+            <div class="blog-card-meta">
+              <span>${pubDate}</span>
+              <span>${a.readTime || 5} min read</span>
+              <span>${(a.wordCount || 0).toLocaleString()} words</span>
+            </div>
+          </a>`;
+        }).join('\n')
+      : '<p style="color:#666;text-align:center;padding:3rem">Articles are being generated — check back soon!</p>';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sports Blog — Latest Cricket, Football & F1 News | Esportsduniya</title>
+<meta name="description" content="Stay updated with the latest sports news, match previews, player analysis, and tournament updates for cricket, football, NBA, tennis, and F1 on Esportsduniya." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://www.esportsduniya.in/blog" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Sports Blog — Esportsduniya" />
+<meta property="og:description" content="Latest sports news, match previews and analysis for cricket, football, NBA, tennis and F1." />
+<meta property="og:url" content="https://www.esportsduniya.in/blog" />
+<meta property="og:image" content="https://www.esportsduniya.in/og-cover.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Sports Blog — Esportsduniya" />
+<meta name="twitter:description" content="Latest sports news and match previews." />
+<meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png" />
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"Esportsduniya Sports Blog","url":"https://www.esportsduniya.in/blog","description":"AI-generated sports news, match previews, and analysis","publisher":{"@type":"Organization","name":"Esportsduniya","url":"https://www.esportsduniya.in","logo":{"@type":"ImageObject","url":"https://www.esportsduniya.in/og-cover.png"}}}</script>
+<style>${BLOG_CSS}</style>
+</head>
+<body>
+<header class="blog-header">
+  <a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a>
+  <nav class="blog-header-nav">
+    <a href="https://www.esportsduniya.in/#cricket">Cricket</a>
+    <a href="https://www.esportsduniya.in/#football">Football</a>
+    <a href="https://www.esportsduniya.in/#dashboard">Live Scores</a>
+  </nav>
+</header>
+<main>
+  <div class="blog-listing-wrap">
+    <div class="blog-listing-header">
+      <h1>Sports Blog</h1>
+      <p>AI-powered sports news, match previews, player analysis, and tournament updates — updated daily</p>
+    </div>
+    <div class="blog-grid">${cardsHtml}</div>
+  </div>
+</main>
+<footer class="blog-footer">
+  <p>© ${new Date().getFullYear()} <a href="https://www.esportsduniya.in">Esportsduniya</a> — AI-powered live sports platform</p>
+</footer>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+    res.send(html);
+  } catch (err) {
+    console.error('Blog listing error:', err);
+    res.status(500).send('Internal server error');
+  }
+});
+
+// ── Blog route: SSR HTML article page (Google-indexable) ──
+app.get('/blog/:slug', async (req, res) => {
+  try {
+    const slug = req.params.slug.replace(/[^a-z0-9-]/g, '');
+    const article = await dbFindArticleBySlug(slug);
+    if (!article) {
+      res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Not Found — Esportsduniya</title><style>${BLOG_CSS}</style></head><body><header class="blog-header"><a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a></header><main><div class="blog-content-wrap" style="text-align:center;padding:6rem 24px"><h2 style="color:#fff;font-size:2rem;margin-bottom:1rem">Article Not Found</h2><p style="color:#888;margin-bottom:2rem">This article may have been removed or hasn't been generated yet.</p><a href="/blog" style="color:#1ee6a7">← Back to Blog</a></div></main></body></html>`);
+    }
+
+    const pubDate = new Date(article.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+    const pubIso  = new Date(article.publishedAt).toISOString();
+    const keywordsHtml = (article.keywords || []).map(k => `<span>${escapeHtml(k)}</span>`).join('');
+    const canonicalUrl = `https://www.esportsduniya.in/blog/${escapeHtml(slug)}`;
+    const siteName = 'Esportsduniya';
+
+    const jsonLd = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'NewsArticle',
+      headline: article.title,
+      description: article.metaDescription,
+      url: canonicalUrl,
+      datePublished: pubIso,
+      dateModified: pubIso,
+      author: { '@type': 'Organization', name: siteName, url: 'https://www.esportsduniya.in' },
+      publisher: {
+        '@type': 'Organization',
+        name: siteName,
+        url: 'https://www.esportsduniya.in',
+        logo: { '@type': 'ImageObject', url: 'https://www.esportsduniya.in/og-cover.png' },
+      },
+      image: { '@type': 'ImageObject', url: 'https://www.esportsduniya.in/og-cover.png', width: 1200, height: 630 },
+      keywords: (article.keywords || []).join(', '),
+      wordCount: article.wordCount,
+      articleSection: article.category,
+      inLanguage: 'en-IN',
+    });
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${escapeHtml(article.title)} | Esportsduniya</title>
+<meta name="description" content="${escapeHtml(article.metaDescription)}" />
+<meta name="keywords" content="${escapeHtml((article.keywords || []).join(', '))}" />
+<meta name="author" content="Esportsduniya" />
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+<link rel="canonical" href="${canonicalUrl}" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="${escapeHtml(article.title)}" />
+<meta property="og:description" content="${escapeHtml(article.metaDescription)}" />
+<meta property="og:url" content="${canonicalUrl}" />
+<meta property="og:image" content="https://www.esportsduniya.in/og-cover.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content="Esportsduniya" />
+<meta property="og:locale" content="en_IN" />
+<meta property="article:published_time" content="${pubIso}" />
+<meta property="article:section" content="${escapeHtml(article.category)}" />
+<meta property="article:tag" content="${escapeHtml((article.keywords || []).join(', '))}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="${escapeHtml(article.title)}" />
+<meta name="twitter:description" content="${escapeHtml(article.metaDescription)}" />
+<meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png" />
+<script type="application/ld+json">${jsonLd}</script>
+<style>${BLOG_CSS}</style>
+</head>
+<body>
+<header class="blog-header">
+  <a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a>
+  <nav class="blog-header-nav">
+    <a href="https://www.esportsduniya.in/#cricket">Cricket</a>
+    <a href="https://www.esportsduniya.in/#football">Football</a>
+    <a href="https://www.esportsduniya.in/#dashboard">Live Scores</a>
+    <a href="/blog">Blog</a>
+  </nav>
+</header>
+<main>
+  <div class="blog-hero">
+    <div class="blog-hero-inner">
+      <div class="blog-category-badge">${escapeHtml(article.category)}</div>
+      <h1 class="blog-title">${escapeHtml(article.title)}</h1>
+      <div class="blog-meta">
+        <strong>Esportsduniya</strong>
+        <span class="dot">·</span>
+        <span>${pubDate}</span>
+        <span class="dot">·</span>
+        <span>${article.readTime || 5} min read</span>
+        <span class="dot">·</span>
+        <span>${(article.wordCount || 0).toLocaleString()} words</span>
+      </div>
+    </div>
+  </div>
+  <div class="blog-content-wrap">
+    <article class="blog-content">
+      ${article.contentHtml}
+      <div class="blog-cta-box">
+        <h3>Follow Live Scores on Esportsduniya</h3>
+        <p>Get real-time scores, AI predictions, and fan insights — all in one place</p>
+        <a href="https://www.esportsduniya.in/#dashboard" target="_blank" rel="noopener noreferrer">Watch Live Scores →</a>
+      </div>
+      ${keywordsHtml ? `<div class="blog-keywords">${keywordsHtml}</div>` : ''}
+    </article>
+    <nav style="margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid rgba(255,255,255,0.07)">
+      <a href="/blog" style="color:#1ee6a7;font-size:0.9rem">← More Sports Articles</a>
+    </nav>
+  </div>
+</main>
+<footer class="blog-footer">
+  <p>© ${new Date().getFullYear()} <a href="https://www.esportsduniya.in">Esportsduniya</a> — AI-powered live sports platform. Article generated by AI using real-time sports data.</p>
+</footer>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=3600');
+    res.send(html);
+  } catch (err) {
+    console.error('Blog article error:', err);
+    res.status(500).send('Internal server error');
+  }
+});
+
+// ── Blog route: Dynamic XML sitemap ──
+app.get('/sitemap-blog.xml', async (req, res) => {
+  try {
+    const list = await dbGetArticles(500);
+    const urls = list.map(a => {
+      const lastmod = new Date(a.publishedAt).toISOString().split('T')[0];
+      return `  <url>
+    <loc>https://www.esportsduniya.in/blog/${escapeHtml(a.slug)}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>`;
+    }).join('\n');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.esportsduniya.in/blog</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+${urls}
+</urlset>`;
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(xml);
+  } catch (err) {
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+
+// Admin: manually trigger article generation
+app.post('/api/blog/generate', verifyToken, async (req, res) => {
+  const user = await dbFindUser(req.user.username);
+  if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+  res.json({ message: 'Article generation started in background' });
+  generateDailyArticles().catch(err => console.error('Manual blog gen error:', err.message));
 });
 
 // ============================================

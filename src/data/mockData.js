@@ -340,6 +340,7 @@ export const NAV_ITEMS = [
     { id: 'divider2', type: 'divider' },
     { id: 'timemachine', icon: '⏳', label: 'Time Machine' },
     { id: 'crowdpulse', icon: '🫀', label: 'Crowd Pulse' },
+    { id: 'blog', icon: '📰', label: 'Blog' },
     { id: 'analytics', icon: '📈', label: 'Analytics' },
     { id: 'admin', icon: '🛠️', label: 'Admin' },
     { id: 'profile', icon: '👤', label: 'Profile' },
