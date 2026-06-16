@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from '../config/apiBase.js';
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -11,7 +12,7 @@ export default function Login({ onLogin }) {
     setError('');
     setMessage('');
     try {
-      const response = await fetch(`/api/${endpoint}`, {
+      const response = await fetch(apiUrl(`/api/${endpoint}`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

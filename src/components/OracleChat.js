@@ -2,6 +2,8 @@
    ESPORTSDUNIYA — AI Match Oracle Component
    ============================================ */
 
+import { apiUrl } from '../config/apiBase.js';
+
 export function createOracleChat(matchContext, gsap) {
     const container = document.createElement('div');
     container.className = 'oracle-chat-container';
@@ -46,7 +48,7 @@ export function createOracleChat(matchContext, gsap) {
         const loader = addMessage('Consulting the stars...', 'ai loading');
 
         try {
-            const response = await fetch('/api/ai/oracle', {
+            const response = await fetch(apiUrl('/api/ai/oracle'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ matchContext, question: text, history })

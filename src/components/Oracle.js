@@ -3,6 +3,7 @@
    Prediction Game & Streaks
    ============================================ */
 import { getWebSocketUrl } from '../services/webSocketUrl.js';
+import { apiUrl } from '../config/apiBase.js';
 
 export function createOracle(matchId, teamA = { name: 'Team A' }, teamB = { name: 'Team B' }) {
     const container = document.createElement('div');
@@ -140,7 +141,7 @@ export function initOracle(matchId) {
 
         // Sync to Oracle community pool
         try {
-            const pool = await fetch(`/api/oracle/${encodeURIComponent(matchId)}/prediction`, {
+            const pool = await fetch(apiUrl(`/api/oracle/${encodeURIComponent(matchId)}/prediction`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ team: selected, wager }),
@@ -163,7 +164,7 @@ export function initOracle(matchId) {
 
     async function loadPool() {
         try {
-            const pool = await fetch(`/api/oracle/${encodeURIComponent(matchId)}`, { cache: 'no-store' }).then(r => r.json());
+            const pool = await fetch(apiUrl(`/api/oracle/${encodeURIComponent(matchId)}`), { cache: 'no-store' }).then(r => r.json());
             updatePool(pool);
         } catch (err) {
             console.warn('Oracle pool unavailable:', err);

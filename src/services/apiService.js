@@ -21,8 +21,9 @@ export async function fetchStandings(league) {
    ============================================ */
 
 import { getWebSocketUrl } from './webSocketUrl.js';
+import { API_BASE, apiUrl } from '../config/apiBase.js';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+export { API_BASE, apiUrl };
 
 let apiAvailable = null;
 let aiScoresAvailable = false;
@@ -63,7 +64,7 @@ export async function checkApiHealth() {
     try {
         const res = await fetch(`${API_BASE}/api/health?t=${Date.now()}`, {
             cache: 'no-store',
-            signal: AbortSignal.timeout(3000),
+            signal: AbortSignal.timeout(15000),
         });
         const data = await res.json();
         apiAvailable = data.status === 'ok';
@@ -75,7 +76,7 @@ export async function checkApiHealth() {
         console.log('   ⚽ API-Football:', rapidApiAvailable ? 'Enabled' : 'Not configured');
         console.log('   🔍 AI Scores:', aiScoresAvailable ? 'Enabled (NBA/Tennis/F1)' : 'Not configured');
         return data;
-    } catch {
+    } catch (err) {
         apiAvailable = false;
         aiScoresAvailable = false;
         rapidApiAvailable = false;
@@ -244,10 +245,11 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
 
     const refreshParam = options.forceRefresh ? '&refresh=1' : '';
     const url = `${API_BASE}/api/sports/live/${sport}?t=${Date.now()}${refreshParam}`;
+    const timeoutMs = sport === 'all' ? 90000 : 45000;
 
     let res;
     try {
-        res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(45000) });
+        res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
     } catch (err) {
         lastLiveMeta = { source: null, fetchedAt: null, stale: false, error: err.message, matchCount: 0 };
         throw new Error('Could not reach scores server. Check your connection.');

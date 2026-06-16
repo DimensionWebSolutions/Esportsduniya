@@ -4,6 +4,7 @@
    ============================================ */
 import confetti from 'canvas-confetti';
 import { getWebSocketUrl } from '../services/webSocketUrl.js';
+import { apiUrl } from '../config/apiBase.js';
 
 export function createFanZone(teamA, teamB, matchId = 'global') {
     const container = document.createElement('div');
@@ -51,7 +52,7 @@ export function initFanZone() {
 
     async function loadState() {
         try {
-            const state = await fetch(`/api/fanzone/${encodeURIComponent(matchId)}`, { cache: 'no-store' }).then(r => r.json());
+            const state = await fetch(apiUrl(`/api/fanzone/${encodeURIComponent(matchId)}`), { cache: 'no-store' }).then(r => r.json());
             updateCounts(state.cheers);
         } catch (err) {
             console.warn('Fan Zone state unavailable:', err);
@@ -84,7 +85,7 @@ export function initFanZone() {
     async function handleCheer(team, e) {
         updateCounts({ ...cheers, [team]: cheers[team] + 1 });
         try {
-            const state = await fetch(`/api/fanzone/${encodeURIComponent(matchId)}/cheer`, {
+            const state = await fetch(apiUrl(`/api/fanzone/${encodeURIComponent(matchId)}/cheer`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ team }),

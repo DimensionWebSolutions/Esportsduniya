@@ -2295,16 +2295,27 @@ app.get('/api/sports/live/:sport', async (req, res) => {
 
   try {
     if (sport === 'all') {
-      const cricket = await getRealSportLive('cricket');
-      const football = await getRealSportLive('football');
+      const [cricket, football] = await Promise.all([
+        getRealSportLive('cricket'),
+        getRealSportLive('football'),
+      ]);
       let allMatches = [...cricket.matches, ...football.matches];
       const metaParts = [cricket, football];
 
       if (hasGemini) {
+        // Only attach cached AI scores on /live/all — never block on fresh Gemini calls (~15s each)
         for (const aiSport of ['nba', 'tennis', 'f1']) {
-          const ai = await getAISportLive(aiSport);
-          allMatches = allMatches.concat(ai.matches);
-          metaParts.push(ai);
+          if (isCacheValid(aiSport)) {
+            const cached = aiScoresCache[aiSport];
+            const cachedMatches = cached.data.map(m => ({ ...m, source: m.source || 'ai-search-cached' }));
+            allMatches = allMatches.concat(cachedMatches);
+            metaParts.push({
+              matches: cachedMatches,
+              source: 'ai-search-cached',
+              fetchedAt: new Date(cached.timestamp).toISOString(),
+              stale: false,
+            });
+          }
         }
       }
 

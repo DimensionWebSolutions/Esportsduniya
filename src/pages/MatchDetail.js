@@ -6,7 +6,7 @@ import { createAIRadio, initAIRadio, queueCommentary } from '../components/AIRad
 import { createFanZone, initFanZone } from '../components/FanZone.js';
 import { createOracle, initOracle } from '../components/Oracle.js';
 import { createSocialPulse, initSocialPulse } from '../components/SocialPulse.js';
-import { buildMatchContext, fetchSocialSentiment } from '../services/apiService.js';
+import { buildMatchContext, fetchSocialSentiment, apiUrl } from '../services/apiService.js';
 import { createOracleChat } from '../components/OracleChat.js';
 import { createPreGamePreview } from '../components/PreGamePreview.js';
 import '../styles/tactics.css';
@@ -183,7 +183,7 @@ export function createMatchDetail(matchId, gsap) {
     const blueprintRoot = page.querySelector('#tactical-blueprint-root');
     if (blueprintRoot) {
       blueprintRoot.innerHTML = `<div class="blueprint-card loading">Decrypting formations...</div>`;
-      fetch('/api/ai/tactics', {
+      fetch(apiUrl('/api/ai/tactics'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchContext: context })
