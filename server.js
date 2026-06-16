@@ -183,6 +183,10 @@ const userSchema = new mongoose.Schema({
   dailyChallenges:    { type: mongoose.Schema.Types.Mixed, default: null },
   lastChallengeDate:  { type: String, default: null },
   fantasyPicks:       { type: Array, default: [] },
+  arenaStats:         {
+    type: mongoose.Schema.Types.Mixed,
+    default: () => ({ calibrationScore: 50, seasonPoints: 0, weekId: null }),
+  },
 }, { timestamps: true });
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
@@ -202,6 +206,48 @@ const articleSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const Article = mongoose.models.Article || mongoose.model('Article', articleSchema);
+
+const fanZoneSchema = new mongoose.Schema({
+  matchId: { type: String, required: true, unique: true, index: true },
+  cheers: {
+    teamA: { type: Number, default: 0 },
+    teamB: { type: Number, default: 0 },
+  },
+  updatedAt: { type: Date, default: Date.now },
+}, { timestamps: true });
+const FanZoneState = mongoose.models.FanZoneState || mongoose.model('FanZoneState', fanZoneSchema);
+
+const predictionPoolSchema = new mongoose.Schema({
+  matchId: { type: String, required: true, unique: true, index: true },
+  totals: {
+    teamA: { type: Number, default: 0 },
+    teamB: { type: Number, default: 0 },
+  },
+  points: {
+    teamA: { type: Number, default: 0 },
+    teamB: { type: Number, default: 0 },
+  },
+  updatedAt: { type: Date, default: Date.now },
+}, { timestamps: true });
+const PredictionPoolState = mongoose.models.PredictionPoolState || mongoose.model('PredictionPoolState', predictionPoolSchema);
+
+const trendingCounterSchema = new mongoose.Schema({
+  sport: { type: String, required: true, unique: true, index: true },
+  count: { type: Number, default: 0 },
+  lastReset: { type: Date, default: Date.now },
+}, { timestamps: true });
+const TrendingCounter = mongoose.models.TrendingCounter || mongoose.model('TrendingCounter', trendingCounterSchema);
+
+const momentSchema = new mongoose.Schema({
+  matchId: String,
+  sport: String,
+  eventType: String,
+  title: String,
+  aiLine: String,
+  matchLabel: String,
+  createdAt: { type: Date, default: Date.now, expires: 86400 },
+}, { timestamps: true });
+const Moment = mongoose.models.Moment || mongoose.model('Moment', momentSchema);
 
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
@@ -321,11 +367,6 @@ function getTrendingCounter(sport) {
   return trendingCounters[sport];
 }
 
-function incrementTrending(sport) {
-  const counter = getTrendingCounter(sport);
-  counter.count += 1;
-}
-
 // ── Highlights cache ──
 let highlightsCache = null;
 let highlightsCacheTime = 0;
@@ -334,16 +375,77 @@ const HIGHLIGHTS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 // Helper to find a user (in-memory fallback only)
 const findUser = (username) => users.find(u => u.username === username);
 
-function getFanZone(matchId) {
+function getWeekId() {
+  const d = new Date();
+  const start = new Date(d.getFullYear(), 0, 1);
+  const week = Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${week}`;
+}
+
+function computeCalibrationScore(predictions) {
+  const resolved = (predictions || []).filter(p => p.status === 'correct' || p.status === 'incorrect');
+  if (resolved.length === 0) return 50;
+  const correct = resolved.filter(p => p.status === 'correct').length;
+  return Math.round(50 + ((correct / resolved.length) - 0.5) * 100);
+}
+
+function updateArenaStatsFromPrediction(user, isCorrect, pointsDelta) {
+  const weekId = getWeekId();
+  const prev = user.arenaStats || { calibrationScore: 50, seasonPoints: 0, weekId };
+  const seasonPoints = (prev.weekId === weekId ? prev.seasonPoints : 0) + (isCorrect ? Math.max(0, pointsDelta) : 0);
+  const predictions = user.predictions || [];
+  return {
+    calibrationScore: computeCalibrationScore(predictions),
+    seasonPoints,
+    weekId,
+  };
+}
+
+async function getFanZone(matchId) {
   const key = String(matchId || 'global');
+  if (useDatabase) {
+    let doc = await FanZoneState.findOne({ matchId: key }).lean();
+    if (!doc) {
+      doc = (await FanZoneState.create({ matchId: key, cheers: { teamA: 0, teamB: 0 } })).toObject();
+    }
+    return { matchId: doc.matchId, cheers: doc.cheers, updatedAt: new Date(doc.updatedAt).getTime() };
+  }
   if (!fanZoneState.has(key)) {
     fanZoneState.set(key, { matchId: key, cheers: { teamA: 0, teamB: 0 }, updatedAt: Date.now() });
   }
   return fanZoneState.get(key);
 }
 
-function getPredictionPool(matchId) {
+async function saveFanZone(state) {
+  if (useDatabase) {
+    await FanZoneState.findOneAndUpdate(
+      { matchId: state.matchId },
+      { $set: { cheers: state.cheers, updatedAt: new Date(state.updatedAt || Date.now()) } },
+      { upsert: true, new: true },
+    );
+    return;
+  }
+  fanZoneState.set(state.matchId, state);
+}
+
+async function getPredictionPool(matchId) {
   const key = String(matchId || 'global');
+  if (useDatabase) {
+    let doc = await PredictionPoolState.findOne({ matchId: key }).lean();
+    if (!doc) {
+      doc = (await PredictionPoolState.create({
+        matchId: key,
+        totals: { teamA: 0, teamB: 0 },
+        points: { teamA: 0, teamB: 0 },
+      })).toObject();
+    }
+    return {
+      matchId: doc.matchId,
+      totals: doc.totals,
+      points: doc.points,
+      updatedAt: new Date(doc.updatedAt).getTime(),
+    };
+  }
   if (!predictionState.has(key)) {
     predictionState.set(key, {
       matchId: key,
@@ -353,6 +455,57 @@ function getPredictionPool(matchId) {
     });
   }
   return predictionState.get(key);
+}
+
+async function savePredictionPool(pool) {
+  if (useDatabase) {
+    await PredictionPoolState.findOneAndUpdate(
+      { matchId: pool.matchId },
+      { $set: { totals: pool.totals, points: pool.points, updatedAt: new Date(pool.updatedAt || Date.now()) } },
+      { upsert: true, new: true },
+    );
+    return;
+  }
+  predictionState.set(pool.matchId, pool);
+}
+
+async function incrementTrending(sport) {
+  const now = Date.now();
+  if (useDatabase) {
+    let doc = await TrendingCounter.findOne({ sport }).lean();
+    if (!doc || (now - new Date(doc.lastReset).getTime()) > TRENDING_WINDOW_MS) {
+      await TrendingCounter.findOneAndUpdate(
+        { sport },
+        { $set: { count: 1, lastReset: new Date(now) } },
+        { upsert: true },
+      );
+      return;
+    }
+    await TrendingCounter.updateOne({ sport }, { $inc: { count: 1 } });
+    return;
+  }
+  const counter = getTrendingCounter(sport);
+  counter.count += 1;
+}
+
+function detectScoreMoments(prevMatches, newMatches) {
+  if (!prevMatches?.length || !newMatches?.length) return;
+  const prevById = Object.fromEntries(prevMatches.map(m => [String(m.id), m]));
+  for (const m of newMatches) {
+    if (m.status !== 'live') continue;
+    const prev = prevById[String(m.id)];
+    if (!prev) continue;
+    const changed = prev.teamA?.score !== m.teamA?.score || prev.teamB?.score !== m.teamB?.score;
+    if (!changed) continue;
+    broadcastRealtime({
+      type: 'moment_event',
+      matchId: m.id,
+      sport: m.sport,
+      eventType: 'score_change',
+      title: `${m.teamA?.name} ${m.teamA?.score} – ${m.teamB?.score} ${m.teamB?.name}`,
+      match: m,
+    });
+  }
 }
 
 function broadcastRealtime(payload) {
@@ -644,11 +797,15 @@ async function resolveMatchPredictions(match) {
         badges.push({ name: '🔮 Oracle Master', earnedAt: new Date().toISOString() });
       }
 
+      const userWithPreds = { ...user, predictions: updatedPredictions };
+      const arenaStats = updateArenaStatsFromPrediction(userWithPreds, isCorrect, pointsDelta);
+
       await dbUpdateUser(user.username, {
         predictions: updatedPredictions,
         fanPoints: newFanPoints,
         badges,
         activityLog: activityLog.slice(0, 50),
+        arenaStats,
       });
 
       console.log(`   🔮 Auto-Resolved: ${user.username} — ${pred.matchLabel} → ${isCorrect ? '✅ Correct' : '❌ Wrong'} (${pointsDelta > 0 ? '+' : ''}${pointsDelta} pts)`);
@@ -768,7 +925,7 @@ app.get('/api/predictions/:username', async (req, res) => {
 });
 
 // ── Trending ──
-app.get('/api/trending', (req, res) => {
+app.get('/api/trending', async (req, res) => {
   const SPORT_META = {
     cricket: { label: 'Cricket', icon: '🏏' },
     football: { label: 'Football', icon: '⚽' },
@@ -778,16 +935,32 @@ app.get('/api/trending', (req, res) => {
   };
 
   const now = Date.now();
-  const results = Object.entries(trendingCounters)
-    .filter(([, v]) => (now - v.lastReset) < TRENDING_WINDOW_MS)
-    .map(([sport, v]) => ({
-      sport,
-      label: SPORT_META[sport]?.label || sport,
-      icon: SPORT_META[sport]?.icon || '🏅',
-      count: v.count,
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3);
+  let results = [];
+
+  if (useDatabase) {
+    const docs = await TrendingCounter.find({}).lean();
+    results = docs
+      .filter(v => (now - new Date(v.lastReset).getTime()) < TRENDING_WINDOW_MS)
+      .map(v => ({
+        sport: v.sport,
+        label: SPORT_META[v.sport]?.label || v.sport,
+        icon: SPORT_META[v.sport]?.icon || '🏅',
+        count: v.count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+  } else {
+    results = Object.entries(trendingCounters)
+      .filter(([, v]) => (now - v.lastReset) < TRENDING_WINDOW_MS)
+      .map(([sport, v]) => ({
+        sport,
+        label: SPORT_META[sport]?.label || sport,
+        icon: SPORT_META[sport]?.icon || '🏅',
+        count: v.count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+  }
 
   res.json({ trending: results.slice(0, 3), source: results.length > 0 ? 'activity' : 'empty' });
 });
@@ -1172,6 +1345,51 @@ app.get('/api/sports/football/events/:fixtureId', async (req, res) => {
   }
 });
 
+// ── Cricket Match Detail (scorecard / ball-by-ball) ──
+app.get('/api/sports/cricket/match/:id', async (req, res) => {
+  if (!hasCricAPI) {
+    return res.status(503).json({ error: 'Cricket match detail unavailable — CRICAPI_KEY not configured' });
+  }
+  try {
+    const id = req.params.id;
+    const [infoRes, scoreRes] = await Promise.all([
+      fetch(`https://api.cricapi.com/v1/match_info?apikey=${CRICAPI_KEY}&id=${id}`),
+      fetch(`https://api.cricapi.com/v1/match_scorecard?apikey=${CRICAPI_KEY}&id=${id}`),
+    ]);
+    const infoData = await infoRes.json();
+    const scoreData = await scoreRes.json();
+    if (infoData.status !== 'success' && scoreData.status !== 'success') {
+      return res.status(502).json({ error: infoData.reason || scoreData.reason || 'CricAPI error' });
+    }
+    const innings = scoreData.data?.scorecard || scoreData.data?.score || [];
+    const events = [];
+    if (Array.isArray(innings)) {
+      innings.forEach(inn => {
+        (inn.overs || inn.overList || []).forEach(overBlock => {
+          (overBlock.balls || overBlock.ball || []).forEach(ball => {
+            events.push({
+              over: overBlock.over ?? overBlock.o,
+              ball: ball.n ?? ball.ball,
+              runs: ball.r ?? ball.runs,
+              wicket: ball.w ?? ball.isWicket,
+              batsman: ball.batsman,
+            });
+          });
+        });
+      });
+    }
+    res.json({
+      info: infoData.data || null,
+      scorecard: events.reverse(),
+      events,
+      source: 'cricapi',
+    });
+  } catch (err) {
+    console.error('   ❌ Cricket match detail:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ── NBA Live ──
 app.get('/api/sports/nba/live', async (req, res) => {
   try {
@@ -1380,8 +1598,10 @@ function getStaleSnapshot(sport) {
 async function getRealSportLive(sport) {
   if (sport === 'cricket') {
     try {
+      const prev = liveSnapshotCache.cricket?.matches;
       const matches = await fetchCricketLiveFromAPI();
       if (matches !== null) {
+        detectScoreMoments(prev, matches);
         saveLiveSnapshot('cricket', matches, 'cricapi');
         return { matches, source: 'cricapi', fetchedAt: liveSnapshotCache.cricket.fetchedAt, stale: false };
       }
@@ -1396,8 +1616,10 @@ async function getRealSportLive(sport) {
 
   if (sport === 'football') {
     try {
+      const prev = liveSnapshotCache.football?.matches;
       const matches = await fetchFootballLiveFromAPI();
       if (matches !== null) {
+        detectScoreMoments(prev, matches);
         saveLiveSnapshot('football', matches, 'api-football');
         return { matches, source: 'api-football', fetchedAt: liveSnapshotCache.football.fetchedAt, stale: false };
       }
@@ -2541,43 +2763,153 @@ app.get('/api/sports/standings/:league', async (req, res) => {
 });
 
 // ── Fan Zone: Persistent match cheers ──
-app.get('/api/fanzone/:matchId', (req, res) => {
-  res.json(getFanZone(req.params.matchId));
+app.get('/api/fanzone/:matchId', async (req, res) => {
+  try {
+    res.json(await getFanZone(req.params.matchId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/fanzone/:matchId/cheer', (req, res) => {
+app.post('/api/fanzone/:matchId/cheer', async (req, res) => {
   const { team } = req.body || {};
   if (!['teamA', 'teamB'].includes(team)) {
     return res.status(400).json({ error: 'team must be teamA or teamB' });
   }
 
-  const state = getFanZone(req.params.matchId);
-  state.cheers[team] += 1;
-  state.updatedAt = Date.now();
+  try {
+    const state = await getFanZone(req.params.matchId);
+    state.cheers[team] += 1;
+    state.updatedAt = Date.now();
+    await saveFanZone(state);
 
-  broadcastRealtime({ type: 'fan_zone_update', matchId: state.matchId, state });
-  res.json(state);
+    broadcastRealtime({ type: 'fan_zone_update', matchId: state.matchId, state });
+    res.json(state);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Oracle Predictions: Persistent aggregate pool ──
-app.get('/api/oracle/:matchId', (req, res) => {
-  res.json(getPredictionPool(req.params.matchId));
+app.get('/api/oracle/:matchId', async (req, res) => {
+  try {
+    res.json(await getPredictionPool(req.params.matchId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/oracle/:matchId/prediction', (req, res) => {
+app.post('/api/oracle/:matchId/prediction', async (req, res) => {
   const { team, wager = 0 } = req.body || {};
   if (!['teamA', 'teamB'].includes(team)) {
     return res.status(400).json({ error: 'team must be teamA or teamB' });
   }
 
-  const numericWager = Math.max(0, Number(wager) || 0);
-  const pool = getPredictionPool(req.params.matchId);
-  pool.totals[team] += 1;
-  pool.points[team] += numericWager;
-  pool.updatedAt = Date.now();
+  try {
+    const numericWager = Math.max(0, Number(wager) || 0);
+    const pool = await getPredictionPool(req.params.matchId);
+    pool.totals[team] += 1;
+    pool.points[team] += numericWager;
+    pool.updatedAt = Date.now();
+    await savePredictionPool(pool);
 
-  broadcastRealtime({ type: 'oracle_update', matchId: pool.matchId, pool });
-  res.json(pool);
+    broadcastRealtime({ type: 'oracle_update', matchId: pool.matchId, pool });
+    res.json(pool);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Prediction Arena ──
+const RIVALRY_FILTERS = {
+  'mi-csk': /mumbai|chennai/i,
+  'ind-pak': /india|pakistan/i,
+  'el-clasico': /barcelona|real madrid/i,
+};
+
+app.get('/api/arena/season', async (req, res) => {
+  try {
+    const weekId = getWeekId();
+    const allUsers = await dbGetAllUsers();
+    const standings = allUsers
+      .map(u => ({
+        username: u.username,
+        avatar: u.avatar || '🦁',
+        fanPoints: u.fanPoints || 0,
+        calibrationScore: u.arenaStats?.calibrationScore ?? computeCalibrationScore(u.predictions),
+        seasonPoints: u.arenaStats?.weekId === weekId ? (u.arenaStats?.seasonPoints ?? 0) : 0,
+        streak: u.streak || 0,
+        predictions: (u.predictions || []).length,
+      }))
+      .sort((a, b) => b.seasonPoints - a.seasonPoints || b.calibrationScore - a.calibrationScore)
+      .slice(0, 100);
+
+    const rivalries = {};
+    for (const [id, filter] of Object.entries(RIVALRY_FILTERS)) {
+      rivalries[id] = allUsers
+        .map(u => {
+          const preds = (u.predictions || []).filter(p => filter.test(p.matchLabel || ''));
+          const resolved = preds.filter(p => p.status === 'correct' || p.status === 'incorrect');
+          const wins = resolved.filter(p => p.status === 'correct').length;
+          return {
+            username: u.username,
+            avatar: u.avatar || '🦁',
+            rivalryPicks: preds.length,
+            winRate: resolved.length ? Math.round((wins / resolved.length) * 100) : 0,
+          };
+        })
+        .filter(r => r.rivalryPicks > 0)
+        .sort((a, b) => b.winRate - a.winRate || b.rivalryPicks - a.rivalryPicks)
+        .slice(0, 20);
+    }
+
+    res.json({ weekId, standings, rivalries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Live Moments ──
+app.get('/api/moments', async (req, res) => {
+  try {
+    const limit = Math.min(50, parseInt(req.query.limit, 10) || 20);
+    if (useDatabase) {
+      const moments = await Moment.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+      return res.json({ moments, source: 'mongodb' });
+    }
+    res.json({ moments: [], source: 'memory' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/moments', async (req, res) => {
+  try {
+    const { matchId, sport, eventType, title, aiLine, matchLabel } = req.body || {};
+    const doc = { matchId, sport, eventType, title, aiLine, matchLabel };
+    if (useDatabase) await Moment.create(doc);
+    res.status(201).json({ ok: true, moment: doc });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/moments/line', async (req, res) => {
+  const { title, sport, match, eventType } = req.body || {};
+  const fallback = `${eventType === 'score_change' ? 'Scores are shifting' : 'Big moment'} in this ${sport || 'match'} — stay locked in!`;
+  if (!hasGemini) return res.json({ line: fallback, source: 'fallback' });
+  try {
+    const prompt = `Write ONE hype sentence (max 20 words) for a live sports moment. No quotes.
+Match: ${title || 'Live match'}
+Sport: ${sport || 'unknown'}
+Event: ${eventType || 'update'}
+Teams: ${match?.teamA?.name || ''} vs ${match?.teamB?.name || ''}`;
+    const text = await callGemini(prompt);
+    const line = (text || fallback).replace(/^["']|["']$/g, '').split('\n')[0].trim();
+    res.json({ line, source: 'gemini' });
+  } catch (err) {
+    res.json({ line: fallback, source: 'fallback' });
+  }
 });
 
 // ============================================
@@ -2663,7 +2995,7 @@ app.post('/api/activity', verifyToken, async (req, res) => {
     const activityLog = [item, ...(user.activityLog || [])].slice(0, 50);
     await dbUpdateUser(username, { activityLog });
 
-    if (data?.sport) incrementTrending(data.sport);
+    if (data?.sport) await incrementTrending(data.sport);
     broadcastRealtime({ type: 'activity', username, item });
     res.json({ success: true, item });
   } catch (err) {

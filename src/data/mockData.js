@@ -327,7 +327,8 @@ export const HISTORICAL_EVENTS = [
 ];
 
 export const NAV_ITEMS = [
-    { id: 'dashboard', icon: '🏠', label: 'Dashboard' },
+    { id: 'dashboard', icon: '🏠', label: 'Home' },
+    { id: 'arena', icon: '🔮', label: 'Arena' },
     { id: 'divider1', type: 'divider' },
     { id: 'cricket', icon: '🏏', label: 'Cricket' },
     { id: 'football', icon: '⚽', label: 'Football' },

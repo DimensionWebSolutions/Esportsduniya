@@ -6,5 +6,12 @@
 # ── API: proxy to Render backend (fallback if VITE_API_URL missing in build) ──
 /api/* https://esportsduniya.onrender.com/api/:splat 200
 
+# ── www → apex: configure in Cloudflare Dashboard → Rules → Redirect Rules ──
+# Rule: (http.host eq "www.esportsduniya.in") → 301 → https://esportsduniya.in/${uri.path}
+# Build env: VITE_API_URL=https://esportsduniya.onrender.com
+
+# ── Legacy path redirect ──
+/dashboard / 301
+
 # ── SPA fallback: all other routes serve index.html ──
 /* /index.html 200

@@ -92,6 +92,9 @@ function handleMessage(payload) {
     case 'fan_zone_update':
       document.dispatchEvent(new CustomEvent('lsm:fan_zone_update', { detail: payload }));
       break;
+    case 'moment_event':
+      document.dispatchEvent(new CustomEvent('lsm:moment_event', { detail: payload }));
+      break;
     default:
       break;
   }

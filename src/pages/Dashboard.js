@@ -86,7 +86,10 @@ export function createDashboard(gsap) {
   page.appendChild(header);
 
   // ── Trending Bar ──
-  page.appendChild(createTrendingBar((sport) => { location.hash = sport; }));
+  page.appendChild(createTrendingBar((sport) => {
+    if (window.esportsNavigate) window.esportsNavigate(sport);
+    else location.hash = sport;
+  }));
 
   // ── View Tabs: Live Scores | Following Feed ──
   const viewTabs = document.createElement('div');
@@ -236,7 +239,10 @@ export function createDashboard(gsap) {
       }
 
       matches.forEach(match => {
-        gridEl.appendChild(createMatchCard(match, (m) => { location.hash = `match/${m.id}`; }));
+        gridEl.appendChild(createMatchCard(match, (m) => {
+          if (window.esportsNavigatePath) window.esportsNavigatePath(`/match/${m.id}`);
+          else location.hash = `match/${m.id}`;
+        }));
       });
 
       if (matches.length > 0) {

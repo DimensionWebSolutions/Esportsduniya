@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { apiUrl } from '../config/apiBase.js';
 
 const SPORT_ICONS = { cricket: '🏏', football: '⚽', nba: '🏀', tennis: '🎾', f1: '🏁' };
 
@@ -17,7 +17,7 @@ export default function FantasyPicks({ match, onClose }) {
 
   useEffect(() => {
     if (user?.username && match?.id) {
-      fetch(`${API_BASE}/api/fantasy/${user.username}`)
+      fetch(apiUrl(`/api/fantasy/${user.username}`))
         .then(r => r.json())
         .then(data => {
           const found = (data.picks || []).find(p => String(p.matchId) === String(match.id));
@@ -34,7 +34,7 @@ export default function FantasyPicks({ match, onClose }) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/api/fantasy/pick`, {
+      const res = await fetch(apiUrl('/api/fantasy/pick'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
