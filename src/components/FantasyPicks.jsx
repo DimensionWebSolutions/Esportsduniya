@@ -4,28 +4,48 @@ import { apiUrl } from '../config/apiBase.js';
 
 const SPORT_ICONS = { cricket: '🏏', football: '⚽', nba: '🏀', tennis: '🎾', f1: '🏁' };
 
+function readStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch {
+    return {};
+  }
+}
+
 export default function FantasyPicks({ match, onClose }) {
   const [pick, setPick] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [existingPick, setExistingPick] = useState(null);
+  const [user, setUser] = useState(readStoredUser);
 
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const token = localStorage.getItem('token');
   const sportIcon = SPORT_ICONS[match?.sport] || '🏅';
 
   useEffect(() => {
-    if (user?.username && match?.id) {
-      fetch(apiUrl(`/api/fantasy/${user.username}`))
-        .then(r => r.json())
-        .then(data => {
-          const found = (data.picks || []).find(p => String(p.matchId) === String(match.id));
-          if (found) setExistingPick(found);
-        })
-        .catch(() => {});
+    const syncUser = () => setUser(readStoredUser());
+    document.addEventListener('esd:login-success', syncUser);
+    window.addEventListener('storage', syncUser);
+    return () => {
+      document.removeEventListener('esd:login-success', syncUser);
+      window.removeEventListener('storage', syncUser);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user?.username || !match?.id) {
+      setExistingPick(null);
+      return;
     }
-  }, [match?.id]);
+    fetch(apiUrl(`/api/fantasy/${user.username}`))
+      .then(r => r.json())
+      .then(data => {
+        const found = (data.picks || []).find(p => String(p.matchId) === String(match.id));
+        setExistingPick(found || null);
+      })
+      .catch(() => setExistingPick(null));
+  }, [match?.id, user?.username]);
 
   const handleSubmit = async () => {
     if (!pick) { setError('Select a team to pick.'); return; }

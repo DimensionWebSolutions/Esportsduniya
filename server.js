@@ -1358,7 +1358,7 @@ app.get('/api/sports/cricket/match/:id', async (req, res) => {
     ]);
     const infoData = await infoRes.json();
     const scoreData = await scoreRes.json();
-    if (infoData.status !== 'success' && scoreData.status !== 'success') {
+    if (infoData.status !== 'success' || scoreData.status !== 'success') {
       return res.status(502).json({ error: infoData.reason || scoreData.reason || 'CricAPI error' });
     }
     const innings = scoreData.data?.scorecard || scoreData.data?.score || [];
