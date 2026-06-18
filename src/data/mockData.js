@@ -327,8 +327,8 @@ export const HISTORICAL_EVENTS = [
 ];
 
 export const NAV_ITEMS = [
-    { id: 'dashboard', icon: '🏠', label: 'Home' },
-    { id: 'arena', icon: '🔮', label: 'Arena' },
+    { id: 'dashboard', icon: '⌁', label: 'Live Cockpit' },
+    { id: 'arena', icon: '◈', label: 'Prediction Arena' },
     { id: 'divider1', type: 'divider' },
     { id: 'cricket', icon: '🏏', label: 'Cricket' },
     { id: 'football', icon: '⚽', label: 'Football' },
@@ -337,12 +337,12 @@ export const NAV_ITEMS = [
     { id: 'tennis', icon: '🎾', label: 'Tennis' },
     { id: 'f1', icon: '🏎️', label: 'F1' },
     { id: 'standings', icon: '📋', label: 'Standings' },
-    { id: 'leaderboard', icon: '🏆', label: 'Leaderboard' },
+    { id: 'leaderboard', icon: '▲', label: 'Fan Rankings' },
     { id: 'divider2', type: 'divider' },
     { id: 'timemachine', icon: '⏳', label: 'Time Machine' },
-    { id: 'crowdpulse', icon: '🫀', label: 'Crowd Pulse' },
-    { id: 'blog', icon: '📰', label: 'Blog' },
+    { id: 'crowdpulse', icon: '◌', label: 'Crowd Pulse' },
+    { id: 'blog', icon: '▤', label: 'Stories' },
     { id: 'analytics', icon: '📈', label: 'Analytics' },
     { id: 'admin', icon: '🛠️', label: 'Admin' },
-    { id: 'profile', icon: '👤', label: 'Profile' },
+    { id: 'profile', icon: '◎', label: 'Fan Passport' },
 ];

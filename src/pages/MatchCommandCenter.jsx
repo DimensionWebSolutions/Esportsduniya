@@ -26,6 +26,7 @@ export default function MatchCommandCenter() {
   const [loading, setLoading] = useState(true);
   const [mobileZone, setMobileZone] = useState('score');
   const [showFantasy, setShowFantasy] = useState(false);
+  const [directorMode, setDirectorMode] = useState('casual');
 
   const analystRef = useRef(null);
   const fanRef = useRef(null);
@@ -149,6 +150,9 @@ export default function MatchCommandCenter() {
 
   const sportAccent = `var(--sport-${match.sport}, var(--accent-neon))`;
   const isLive = match.status === 'live';
+  const crowdA = Math.max(12, Math.min(88, match.momentum || 50));
+  const crowdB = 100 - crowdA;
+  const replayMoments = timeline.slice(0, 6);
 
   return (
     <div className="command-center" data-sport={match.sport}>
@@ -170,6 +174,15 @@ export default function MatchCommandCenter() {
             <span>{match.venue}</span>
             {isLive && <span className="live-dot" style={{ display: 'inline-block' }} />}{match.minute || match.status}
             {match.source && <span>· {match.source}</span>}
+          </div>
+          <div className="command-belief" aria-label="Open fan graph">
+            <div className="command-belief-labels">
+              <span>{match.teamA?.name} {crowdA}%</span>
+              <span>{match.teamB?.name} {crowdB}%</span>
+            </div>
+            <div className="command-belief-bar">
+              <span style={{ width: `${crowdA}%` }} />
+            </div>
           </div>
         </div>
         <div className="command-actions">
@@ -208,13 +221,35 @@ export default function MatchCommandCenter() {
 
       <div className="command-zones">
         <aside className={`command-zone command-zone-left ${mobileZone === 'ai' ? 'mobile-active' : ''}`}>
-          <h3 className="command-zone-title">AI Analyst</h3>
+          <div className="command-zone-heading">
+            <h3 className="command-zone-title">AI Match Director</h3>
+            <div className="director-tabs" role="tablist" aria-label="AI director mode">
+              {['casual', 'fantasy', 'tactical'].map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={directorMode === mode ? 'active' : ''}
+                  onClick={() => setDirectorMode(mode)}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="command-director-note">
+            {directorMode === 'casual' && 'Fast context for fans who just entered the room.'}
+            {directorMode === 'fantasy' && 'Player impact, risk, and late-swap signals for fantasy thinking.'}
+            {directorMode === 'tactical' && 'Shape, momentum, and pressure points for deeper analysis.'}
+          </p>
           <div ref={momentumRef} />
           <div ref={narrativeRef} />
         </aside>
 
         <section className={`command-zones-center command-zone ${mobileZone === 'score' ? 'mobile-active' : ''}`}>
-          <h3 className="command-zone-title">Live Timeline</h3>
+          <div className="command-zone-heading">
+            <h3 className="command-zone-title">{match.status === 'finished' ? 'Momentum Replay' : 'Live Timeline'}</h3>
+            <span className="command-zone-badge">{match.status}</span>
+          </div>
           <div ref={radioRef} className="command-radio-slot" />
           {timelineError && (
             <p className="command-timeline-empty">{timelineError}</p>
@@ -233,10 +268,36 @@ export default function MatchCommandCenter() {
               </li>
             ))}
           </ul>
+          {match.status === 'finished' && replayMoments.length > 0 && (
+            <div className="momentum-replay-card">
+              <h4>Where the match turned</h4>
+              {replayMoments.map((ev, i) => (
+                <div key={i} className="momentum-replay-row">
+                  <span>{i + 1}</span>
+                  <p>{ev.over != null ? `${ev.over}.${ev.ball} ${ev.wicket ? 'Wicket' : 'Scoring event'}` : `${ev.time?.elapsed ?? ''}' ${ev.type || 'Event'}`}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <aside className={`command-zone command-zone-right ${mobileZone === 'fan' || mobileZone === 'predict' ? 'mobile-active' : ''}`}>
-          <h3 className="command-zone-title">Fan Arena</h3>
+          <h3 className="command-zone-title">Crowd Pulse</h3>
+          <div className="command-crowd-card">
+            <div className="command-crowd-row">
+              <span>Belief swing</span>
+              <strong>{crowdA}% / {crowdB}%</strong>
+            </div>
+            <div className="command-crowd-row">
+              <span>Room state</span>
+              <strong>{isLive ? 'Live pressure' : match.status === 'finished' ? 'Replay mode' : 'Pre-match build'}</strong>
+            </div>
+            <div className="command-reactions" aria-label="Fan reactions">
+              {['Cheer', 'Nervous', 'Confident', 'Shocked'].map(label => (
+                <button key={label} type="button">{label}</button>
+              ))}
+            </div>
+          </div>
           <div ref={fanRef} className={mobileZone === 'fan' ? '' : 'command-zone-collapsed-mobile'} />
           <h3 className="command-zone-title">Oracle Lock-in</h3>
           <div ref={oracleRef} className={mobileZone === 'predict' ? '' : 'command-zone-collapsed-mobile'} />

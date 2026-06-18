@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { SPORTS } from '../data/mockData.js';
+import { LIVE_CROWD_PULSE, SPORTS } from '../data/mockData.js';
 import { fetchLiveMatches, getLiveScoresMeta } from '../services/apiService.js';
 import { createMatchCard } from '../components/MatchCard.js';
 import { createFooter } from '../components/Footer.js';
@@ -122,6 +122,12 @@ export default function HomePage() {
 
   const liveMatches = matches.filter(m => m.status === 'live');
   const yourMatches = matches.filter(m => favSports.includes(m.sport)).slice(0, 6);
+  const upcomingMatches = matches.filter(m => m.status === 'upcoming').slice(0, 5);
+  const risingMatches = [...matches]
+    .sort((a, b) => (b.momentum || 0) - (a.momentum || 0))
+    .slice(0, 4);
+  const activeSports = SPORTS.filter(s => s.id !== 'all');
+  const featuredPulse = LIVE_CROWD_PULSE.slice(0, 5);
 
   const setSport = (id) => {
     setActiveSport(id);
@@ -130,19 +136,40 @@ export default function HomePage() {
 
   return (
     <div className="home-v2">
-      <header className="home-hero">
-        <h1>
-          {user?.username ? `Welcome back, ${user.username}` : 'Live Sports Cockpit'}
-        </h1>
-        <p>
-          Real scores, AI analyst, crowd energy & predictions — personalized for{' '}
-          {favSports.map(s => SPORTS.find(x => x.id === s)?.label || s).join(' & ')}.
-        </p>
+      <header className="home-hero home-cockpit-hero">
+        <div className="home-hero-copy">
+          <span className="home-kicker">EsportsDuniya Fan Operating System</span>
+          <h1>
+            {user?.username ? `${user.username}'s Live Sports Cockpit` : 'Live Sports Cockpit'}
+          </h1>
+          <p>
+            Enter the match room, lock your Oracle call, watch crowd belief move, and build a Fan Passport across cricket, football, and global sport.
+          </p>
+        </div>
+        <div className="home-hero-panel" aria-label="Live cockpit status">
+          <div>
+            <span className="home-metric-value">{liveMatches.length}</span>
+            <span className="home-metric-label">Live rooms</span>
+          </div>
+          <div>
+            <span className="home-metric-value">{matches.length}</span>
+            <span className="home-metric-label">Tracked matches</span>
+          </div>
+          <div>
+            <span className="home-metric-value">{trending.reduce((sum, t) => sum + (t.count || 0), 0)}</span>
+            <span className="home-metric-label">Crowd signals</span>
+          </div>
+        </div>
       </header>
 
       {liveMatches.length > 0 && (
-        <section aria-label="Live now">
-          <h2 className="home-section-title">Live now</h2>
+        <section className="home-command-section" aria-label="Live now">
+          <div className="home-section-head">
+            <div>
+              <h2 className="home-section-title">Live Now</h2>
+              <p>Tap into rooms where the score, crowd, AI, and Oracle are moving right now.</p>
+            </div>
+          </div>
           <div className="home-live-strip">
             {liveMatches.slice(0, 8).map(m => (
               <Link key={m.id} to={`/match/${m.id}`} className="home-live-pill">
@@ -155,18 +182,18 @@ export default function HomePage() {
       )}
 
       {yourMatches.length > 0 && (
-        <section className="home-missed-card" aria-label="Your matches today">
-          <strong>Your matches today</strong>
+        <section className="home-missed-card home-passport-card" aria-label="Your matches today">
+          <strong>Your sports radar</strong>
           <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             {yourMatches.filter(m => m.status === 'live').length} live ·{' '}
-            {yourMatches.filter(m => m.status === 'upcoming').length} upcoming
+            {yourMatches.filter(m => m.status === 'upcoming').length} upcoming · tuned to {favSports.join(', ')}
           </p>
         </section>
       )}
 
       {trending.length > 0 && (
-        <section style={{ marginBottom: 'var(--space-6)' }}>
-          <h2 className="home-section-title">Trending</h2>
+        <section className="home-command-section">
+          <h2 className="home-section-title">Rising Crowd Signals</h2>
           <div className="home-live-strip">
             {trending.map(t => (
               <button
@@ -182,6 +209,36 @@ export default function HomePage() {
         </section>
       )}
 
+      <section className="home-command-section home-pulse-grid" aria-label="Crowd pulse map">
+        <div className="home-section-head">
+          <div>
+            <h2 className="home-section-title">Crowd Pulse Map</h2>
+            <p>Regional fan heat built from activity, cheers, and match-room signals.</p>
+          </div>
+          <Link to="/crowdpulse" className="home-text-link">Open Pulse</Link>
+        </div>
+        <div className="home-pulse-map">
+          {featuredPulse.map(city => (
+            <div
+              key={city.name}
+              className="home-pulse-city"
+              style={{ left: `${city.x}%`, top: `${city.y}%`, '--pulse': `${city.intensity}%` }}
+              title={`${city.name}: ${city.fans} fans`}
+            >
+              <span />
+            </div>
+          ))}
+        </div>
+        <div className="home-pulse-list">
+          {featuredPulse.map(city => (
+            <div key={city.name} className="home-pulse-row">
+              <span>{city.name}</span>
+              <strong>{city.intensity}%</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <div className="sport-tabs" role="tablist">
         <button
           type="button"
@@ -190,7 +247,7 @@ export default function HomePage() {
         >
           🌐 All
         </button>
-        {SPORTS.map(s => (
+        {activeSports.map(s => (
           <button
             key={s.id}
             type="button"
@@ -229,7 +286,50 @@ export default function HomePage() {
         </div>
       )}
 
+      {risingMatches.length > 0 && (
+        <section className="home-command-section" aria-label="Rising matches">
+          <div className="home-section-head">
+            <div>
+              <h2 className="home-section-title">Rising Matches</h2>
+              <p>Highest momentum rooms to enter before the crowd catches up.</p>
+            </div>
+          </div>
+          <div className="home-rising-grid">
+            {risingMatches.map((m, i) => (
+              <Link key={m.id} to={`/match/${m.id}`} className="home-rising-card">
+                <span className="home-rising-rank">#{i + 1}</span>
+                <strong>{m.teamA?.name} vs {m.teamB?.name}</strong>
+                <small>{m.league} · {m.status}</small>
+                <div className="home-belief-bar"><span style={{ width: `${Math.max(8, m.momentum || 50)}%` }} /></div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {upcomingMatches.length > 0 && (
+        <section className="home-command-section" aria-label="Upcoming big fixtures">
+          <h2 className="home-section-title">Upcoming Big Fixtures</h2>
+          <div className="home-upcoming-list">
+            {upcomingMatches.map(m => (
+              <Link key={m.id} to={`/match/${m.id}`} className="home-upcoming-row">
+                <span>{m.sport}</span>
+                <strong>{m.teamA?.name} vs {m.teamB?.name}</strong>
+                <em>{m.minute || m.kickoff || m.league}</em>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div ref={gridRef} className="match-grid" />
+      <section className="home-command-section home-stories-strip" aria-label="Latest stories">
+        <div>
+          <h2 className="home-section-title">Latest Stories</h2>
+          <p>SEO stories now support the live product: previews, rivalry explainers, prediction reports, and match-turning recaps.</p>
+        </div>
+        <Link to="/blog" className="home-retry-btn">Read Stories</Link>
+      </section>
       <div ref={footerRef} />
     </div>
   );

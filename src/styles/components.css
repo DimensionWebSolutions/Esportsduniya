@@ -20,7 +20,7 @@
     margin-left: var(--nav-width);
     padding: var(--space-8);
     max-width: var(--max-content);
-    width: 100%;
+    width: calc(100% - var(--nav-width));
 }
 
 /* ── Dynamic Island (Sticky Score Ticker) ── */

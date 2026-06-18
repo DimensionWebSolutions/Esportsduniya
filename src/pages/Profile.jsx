@@ -141,7 +141,7 @@ export default function ProfilePage() {
           }}
           style={{ marginTop: '1rem', padding: '10px 24px', borderRadius: '20px', background: 'var(--accent-cyber)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '1rem' }}
         >
-          Sign In
+          Open Fan Passport
         </button>
       </div>
     );
@@ -159,10 +159,11 @@ export default function ProfilePage() {
 
   return (
     <div className="profile-container">
-      {/* ── Fan Identity Header ── */}
+      {/* Fan Passport Header */}
       <div className="profile-hero">
         <div className="profile-avatar-big">{user.avatar || user.preferences?.avatar || '🦁'}</div>
         <div className="profile-hero-info">
+          <div className="profile-passport-kicker">Fan Passport</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <h2 className="profile-username">{user.username}</h2>
             {user.isPremium && <span style={{ background: 'linear-gradient(90deg,#f8c300,#ff8c00)', color: '#000', padding: '2px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700 }}>💎 PREMIUM</span>}
@@ -190,12 +191,37 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      <div className="profile-section passport-summary">
+        <h3 className="profile-section-title">◎ Public Fan Identity</h3>
+        <div className="passport-grid">
+          <div>
+            <span>Rivalry identity</span>
+            <strong>{preferences.favoriteSports?.includes('cricket') ? 'Cricket pressure player' : 'Multi-sport scout'}</strong>
+          </div>
+          <div>
+            <span>Primary arena</span>
+            <strong>{preferences.favoriteSports?.[0] || 'Not selected'}</strong>
+          </div>
+          <div>
+            <span>Reputation source</span>
+            <strong>{stats?.total ? 'Oracle accuracy' : 'Participation streaks'}</strong>
+          </div>
+        </div>
+        <button
+          className="profile-share-btn"
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(window.location.href)}
+        >
+          Copy Passport Link
+        </button>
+      </div>
+
       {message && <div className="profile-message success">{message}</div>}
       {error && <div className="profile-message error">{error}</div>}
 
       {/* ── Oracle Prediction Accuracy Card ── */}
       <div className="profile-section">
-        <h3 className="profile-section-title">🔮 Prediction Accuracy</h3>
+        <h3 className="profile-section-title">◈ Oracle Accuracy</h3>
         {predLoading ? (
           <div className="pred-stats-loading">Analysing your Oracle record...</div>
         ) : stats && stats.total > 0 ? (
@@ -268,7 +294,7 @@ export default function ProfilePage() {
         ) : (
           <div className="pred-empty">
             <div style={{fontSize:'2.5rem', marginBottom:'12px'}}>🔮</div>
-            <p>No predictions yet. Go to a match and use <strong>The Oracle</strong> to start predicting!</p>
+            <p>No predictions yet. Enter a Match Command Center and use <strong>The Oracle</strong> to start building your public record.</p>
           </div>
         )}
       </div>
@@ -276,7 +302,7 @@ export default function ProfilePage() {
       {/* ── Badges ── */}
       {badges.length > 0 && (
         <div className="profile-section">
-          <h3 className="profile-section-title">🏅 Badges</h3>
+          <h3 className="profile-section-title">🏅 Passport Badges</h3>
           <div className="badges-grid">
             {badges.map((badge, i) => {
               const name = typeof badge === 'string' ? badge : badge.name;
@@ -293,7 +319,7 @@ export default function ProfilePage() {
 
       {/* ── Preferences ── */}
       <div className="profile-section">
-        <h3 className="profile-section-title">⚙️ Preferences</h3>
+        <h3 className="profile-section-title">⚙️ Sports Signal Preferences</h3>
         {!editing ? (
           <div>
             <p><b>Theme:</b> {preferences.theme || 'dark'}</p>
@@ -333,7 +359,7 @@ export default function ProfilePage() {
 
       {/* ── Match Reminders ── */}
       <div className="profile-section">
-        <h3 className="profile-section-title">⏰ Reminders</h3>
+        <h3 className="profile-section-title">⏰ Match Room Reminders</h3>
         {reminders.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>No reminders set. Click "Remind Me" on any upcoming match.</p>
         ) : (
@@ -353,7 +379,7 @@ export default function ProfilePage() {
 
       {/* ── Match History ── */}
       <div className="profile-section">
-        <h3 className="profile-section-title">📋 Match History</h3>
+        <h3 className="profile-section-title">▤ Fan Activity History</h3>
         {user.matchHistory?.length > 0 ? (
           <ul className="profile-list">
             {user.matchHistory.map((match, i) => (

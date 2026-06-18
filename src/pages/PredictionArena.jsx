@@ -42,8 +42,8 @@ export default function PredictionArena() {
   return (
     <div className="arena-page">
       <header className="arena-hero">
-        <h1>🔮 Prediction Arena</h1>
-        <p>Skill-rated predictions · Weekly seasons · Calibration score vs crowd & AI</p>
+        <h1>◈ Prediction Arena</h1>
+        <p>Weekly Oracle seasons · Rivalry rooms · Calibration score against crowd belief and AI reads</p>
         {season?.weekId && (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 8 }}>
             Season {season.weekId}
@@ -72,9 +72,9 @@ export default function PredictionArena() {
 
       {!user?.username && (
         <div className="home-missed-card" style={{ marginBottom: 'var(--space-6)' }}>
-          <strong>Sign in to compete</strong>
+          <strong>Open your Fan Passport to compete</strong>
           <p style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>
-            Lock Oracle predictions on live matches to climb the arena.
+            Lock Oracle predictions inside Match Command Centers to climb weekly seasons.
           </p>
           <button type="button" className="home-retry-btn" onClick={() => window.mountLoginScreen?.()}>
             Sign In
@@ -87,7 +87,7 @@ export default function PredictionArena() {
           Season board
         </button>
         <button type="button" className={`arena-tab ${tab === 'rivalry' ? 'active' : ''}`} onClick={() => setTab('rivalry')}>
-          Rivalries
+          Rivalry rooms
         </button>
       </div>
 

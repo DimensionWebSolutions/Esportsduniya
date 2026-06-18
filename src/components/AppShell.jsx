@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Component, useEffect } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { createDynamicIsland, startTickerUpdates } from './DynamicIsland.js';
@@ -9,6 +9,25 @@ import { registerServiceWorker, startReminderChecker } from './NotificationHelpe
 import { initLiveScoreManager } from '../services/LiveScoreManager.js';
 import MomentEngine from './MomentEngine.jsx';
 import { pathToPageId, pageIdToPath, hashToPath } from '../utils/routes.js';
+
+class SilentWidgetBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error) {
+    console.warn('[AppShell] Optional widget disabled:', error?.message || error);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 function renderTopBar(onLogin) {
   const existing = document.getElementById('esd-top-bar');
@@ -53,10 +72,10 @@ function createMobileNav(navigate) {
   mobileNav.id = 'mobile-nav';
   mobileNav.className = 'mobile-nav';
   mobileNav.innerHTML = `
-    <button class="mobile-nav-item" data-page="dashboard"><span class="mobile-nav-icon">🏠</span><span>Home</span></button>
-    <button class="mobile-nav-item" data-page="arena"><span class="mobile-nav-icon">🔮</span><span>Arena</span></button>
-    <button class="mobile-nav-item" data-page="leaderboard"><span class="mobile-nav-icon">🏆</span><span>Ranks</span></button>
-    <button class="mobile-nav-item" data-page="profile"><span class="mobile-nav-icon">👤</span><span>Profile</span></button>
+    <button class="mobile-nav-item" data-page="dashboard"><span class="mobile-nav-icon">⌁</span><span>Live</span></button>
+    <button class="mobile-nav-item" data-page="arena"><span class="mobile-nav-icon">◈</span><span>Arena</span></button>
+    <button class="mobile-nav-item" data-page="crowdpulse"><span class="mobile-nav-icon">◌</span><span>Pulse</span></button>
+    <button class="mobile-nav-item" data-page="profile"><span class="mobile-nav-icon">◎</span><span>Passport</span></button>
   `;
   mobileNav.querySelectorAll('.mobile-nav-item').forEach(btn => {
     btn.addEventListener('click', () => navigate(pageIdToPath(btn.dataset.page)));
@@ -129,7 +148,9 @@ export default function AppShell({ onLogin, shellReady }) {
       <main id="main-content" className="main-content" style={{ minHeight: '100vh' }}>
         <Outlet />
       </main>
-      <MomentEngine />
+      <SilentWidgetBoundary>
+        <MomentEngine />
+      </SilentWidgetBoundary>
     </>
   );
 }

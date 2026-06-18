@@ -39,6 +39,16 @@ let lastLiveMeta = {
     matchCount: 0,
 };
 
+function timeoutSignal(ms) {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        return AbortSignal.timeout(ms);
+    }
+    if (typeof AbortController === 'undefined') return undefined;
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+}
+
 export function getLiveScoresMeta() {
     return { ...lastLiveMeta };
 }
@@ -64,7 +74,7 @@ export async function checkApiHealth() {
     try {
         const res = await fetch(`${API_BASE}/api/health?t=${Date.now()}`, {
             cache: 'no-store',
-            signal: AbortSignal.timeout(15000),
+            signal: timeoutSignal(15000),
         });
         const data = await res.json();
         apiAvailable = data.status === 'ok';
@@ -239,8 +249,8 @@ async function fetchInternal(endpoint) {
  * NBA/Tennis/F1: AI only when configured.
  */
 export async function fetchLiveMatches(sport = 'all', options = {}) {
-    if (!apiAvailable) {
-        throw new Error('Scores service unavailable. API health check failed.');
+    if (apiAvailable === null) {
+        await checkApiHealth();
     }
 
     const refreshParam = options.forceRefresh ? '&refresh=1' : '';
@@ -249,7 +259,7 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
 
     let res;
     try {
-        res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+        res = await fetch(url, { cache: 'no-store', signal: timeoutSignal(timeoutMs) });
     } catch (err) {
         lastLiveMeta = { source: null, fetchedAt: null, stale: false, error: err.message, matchCount: 0 };
         throw new Error('Could not reach scores server. Check your connection.');

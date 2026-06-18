@@ -258,6 +258,164 @@
     margin-left: auto;
 }
 
+/* Match Command Center revamp */
+.command-zone-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.command-zone-badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    font-weight: 800;
+}
+
+.command-belief {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.command-belief-labels {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.command-belief-bar {
+    height: 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(255,61,0,0.55), rgba(255,61,0,0.16));
+}
+
+.command-belief-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent-cyber), var(--accent-neon));
+}
+
+.director-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.director-tabs button,
+.command-reactions button {
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: capitalize;
+    cursor: pointer;
+}
+
+.director-tabs button.active {
+    color: #000;
+    background: var(--accent-cyber);
+    border-color: var(--accent-cyber);
+}
+
+.command-director-note {
+    margin: 0 0 16px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.command-crowd-card,
+.momentum-replay-card {
+    margin-bottom: 18px;
+    padding: 16px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.command-crowd-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+}
+
+.command-crowd-row strong {
+    color: var(--text-primary);
+    text-align: right;
+}
+
+.command-reactions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.command-reactions button:hover {
+    border-color: rgba(57,255,20,0.35);
+    color: var(--accent-neon);
+}
+
+.momentum-replay-card h4 {
+    margin: 0 0 12px;
+    font-size: 0.95rem;
+}
+
+.momentum-replay-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 8px 0;
+    color: var(--text-secondary);
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.momentum-replay-row span {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(0,212,255,0.12);
+    color: var(--accent-cyber);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.momentum-replay-row p {
+    margin: 2px 0 0;
+    font-size: 0.82rem;
+}
+
+@media (max-width: 720px) {
+    .command-zone-heading {
+        flex-direction: column;
+    }
+
+    .command-reactions {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Recent Form Badges */
 .form-grid {
     display: grid;
