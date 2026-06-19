@@ -26,6 +26,13 @@ body {
     line-height: 1.6;
     overflow-x: hidden;
     min-height: 100vh;
+    padding-top: var(--island-height, 56px);
+}
+
+@media (min-width: 900px) {
+    body {
+        padding-left: var(--rail-width, 72px);
+    }
 }
 
 h1,

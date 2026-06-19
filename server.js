@@ -18,21 +18,96 @@ import cron from 'node-cron';
 import webpush from 'web-push';
 import Stripe from 'stripe';
 import sanitizeHtml from 'sanitize-html';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import nodemailer from 'nodemailer';
+import * as Sentry from '@sentry/node';
 
 config(); // Load .env
 
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+  });
+  console.log('   ✅ Sentry: Error tracking configured');
+}
+
+// ── P0-1: Fail-fast on missing secrets in production ──
+const IS_PROD = process.env.NODE_ENV === 'production';
+const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? null : 'esd-dev-secret-DO-NOT-USE-IN-PROD');
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET must be set in production. Exiting.');
+  process.exit(1);
+}
+const SALT_ROUNDS = 10;
+
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ── P0-2: Security headers ──
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://esportsduniya.onrender.com", "wss://esportsduniya.onrender.com", "ws://localhost:*", "http://localhost:*"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ── P0-6: CORS allowlist ──
+const ALLOWED_ORIGINS = [
+  'https://esportsduniya.in',
+  'https://www.esportsduniya.in',
+  'https://esportsduniya.pages.dev',
+];
+if (!IS_PROD) ALLOWED_ORIGINS.push('http://localhost:5173', 'http://localhost:3001', 'http://127.0.0.1:5173');
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(null, false);
+  },
+  credentials: true,
+}));
+
+app.use(express.json({ limit: '100kb' }));
+
+// ── P0-3: Rate limiting ──
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+app.use('/api/', globalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Try again in 15 minutes.' },
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'AI request limit reached. Try again later.' },
+});
 
 // Live sports API responses must never be cached by browsers/CDNs
 app.use('/api/sports', (req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   next();
 });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'esd-dev-secret-change-in-production';
-const SALT_ROUNDS = 10;
 
 // ── Web Push (VAPID) ──
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
@@ -44,6 +119,44 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   console.log('   ✅ Web Push: VAPID configured');
 } else {
   console.log('   ℹ️  Web Push: No VAPID keys — push notifications disabled (set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)');
+}
+
+// ── Email (Nodemailer) ──
+let emailTransporter = null;
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  emailTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  console.log('   ✅ Email: SMTP configured');
+} else {
+  console.log('   ℹ️  Email: No SMTP config — email features disabled (set SMTP_HOST, SMTP_USER, SMTP_PASS)');
+}
+
+async function sendEmail(to, subject, html) {
+  if (!emailTransporter) {
+    console.warn('   ⚠️  Email not configured, skipping:', subject);
+    return false;
+  }
+  try {
+    await emailTransporter.sendMail({
+      from: process.env.SMTP_FROM || 'Esportsduniya <noreply@esportsduniya.in>',
+      to, subject, html,
+    });
+    return true;
+  } catch (err) {
+    console.error('   ❌ Email send failed:', err.message);
+    return false;
+  }
+}
+
+function generateToken() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  for (let i = 0; i < 48; i++) token += chars[Math.floor(Math.random() * chars.length)];
+  return token;
 }
 
 // ── Auth Middleware ──
@@ -180,6 +293,12 @@ const userSchema = new mongoose.Schema({
   isPremium:          { type: Boolean, default: false },
   premiumExpiry:      { type: Date, default: null },
   pushSubscriptions:  { type: Array, default: [] },
+  email:              { type: String, sparse: true, default: null },
+  emailVerified:      { type: Boolean, default: false },
+  emailVerifyToken:   { type: String, default: null },
+  emailVerifyExpiry:  { type: Date, default: null },
+  resetToken:         { type: String, default: null },
+  resetTokenExpiry:   { type: Date, default: null },
   dailyChallenges:    { type: mongoose.Schema.Types.Mixed, default: null },
   lastChallengeDate:  { type: String, default: null },
   fantasyPicks:       { type: Array, default: [] },
@@ -188,6 +307,13 @@ const userSchema = new mongoose.Schema({
     default: () => ({ calibrationScore: 50, seasonPoints: 0, weekId: null }),
   },
 }, { timestamps: true });
+
+userSchema.index({ fanPoints: -1 });
+userSchema.index({ 'arenaStats.weekId': 1, 'arenaStats.seasonPoints': -1 });
+userSchema.index({ email: 1 }, { sparse: true });
+userSchema.index({ emailVerifyToken: 1 }, { sparse: true });
+userSchema.index({ resetToken: 1 }, { sparse: true });
+userSchema.index({ lastLoginDate: -1 });
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
@@ -386,7 +512,9 @@ function computeCalibrationScore(predictions) {
   const resolved = (predictions || []).filter(p => p.status === 'correct' || p.status === 'incorrect');
   if (resolved.length === 0) return 50;
   const correct = resolved.filter(p => p.status === 'correct').length;
-  return Math.round(50 + ((correct / resolved.length) - 0.5) * 100);
+  const winRate = correct / resolved.length;
+  const confidence = Math.min(1, resolved.length / 20);
+  return Math.round((50 * (1 - confidence)) + ((50 + (winRate - 0.5) * 100) * confidence));
 }
 
 function updateArenaStatsFromPrediction(user, isCorrect, pointsDelta) {
@@ -518,8 +646,8 @@ function broadcastRealtime(payload) {
 }
 
 // Register Endpoint
-app.post('/api/register', async (req, res) => {
-  const { username, password } = req.body;
+app.post('/api/register', authLimiter, async (req, res) => {
+  const { username, password, email } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
@@ -535,6 +663,9 @@ app.post('/api/register', async (req, res) => {
     if (existing) return res.status(409).json({ error: 'Username already exists.' });
 
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+    const emailVerifyToken = email ? generateToken() : null;
+    const emailVerifyExpiry = email ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
 
     const newUser = {
       id: Date.now().toString(),
@@ -554,11 +685,23 @@ app.post('/api/register', async (req, res) => {
       following: [],
       followers: [],
       activityLog: [],
+      email: email || null,
+      emailVerified: false,
+      emailVerifyToken,
+      emailVerifyExpiry,
     };
 
     const created = await dbCreateUser(newUser);
-    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
     console.log(`   👤 New User Registered: ${username}`);
+
+    if (email && emailVerifyToken) {
+      const verifyUrl = `https://esportsduniya.in/verify-email?token=${emailVerifyToken}`;
+      sendEmail(email, 'Verify your Esportsduniya email',
+        `<h2>Welcome to Esportsduniya!</h2><p>Click below to verify your email:</p><a href="${verifyUrl}" style="display:inline-block;padding:12px 24px;background:#1ee6a7;color:#000;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a><p>This link expires in 24 hours.</p>`
+      );
+    }
+
     res.status(201).json({ message: 'Registration successful!', user: safeUser(created), token });
   } catch (err) {
     console.error('Register error:', err.message);
@@ -567,7 +710,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // Login Endpoint
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   const { username, password } = req.body;
 
   try {
@@ -598,13 +741,111 @@ app.post('/api/login', async (req, res) => {
 
     await dbUpdateUser(username, { streak: newStreak, lastLoginDate: today, badges });
 
-    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
     const updatedUser = await dbFindUser(username);
     console.log(`   👤 User Logged In: ${username} (streak: ${newStreak})`);
     res.json({ message: 'Login successful!', user: safeUser(updatedUser), token });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'Login failed. Please try again.' });
+  }
+});
+
+// ── Email Verification Endpoints ──
+app.get('/api/verify-email', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: 'Token required' });
+
+  try {
+    const allUsers = await dbGetAllUsers();
+    const user = allUsers.find(u => u.emailVerifyToken === token);
+    if (!user) return res.status(400).json({ error: 'Invalid or expired token' });
+    if (user.emailVerifyExpiry && new Date(user.emailVerifyExpiry) < new Date()) {
+      return res.status(400).json({ error: 'Token expired. Please request a new verification email.' });
+    }
+
+    await dbUpdateUser(user.username, {
+      emailVerified: true,
+      emailVerifyToken: null,
+      emailVerifyExpiry: null,
+    });
+
+    res.json({ message: 'Email verified successfully!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+app.post('/api/resend-verification', authLimiter, verifyToken, async (req, res) => {
+  try {
+    const user = await dbFindUser(req.user.username);
+    if (!user?.email) return res.status(400).json({ error: 'No email on account' });
+    if (user.emailVerified) return res.status(400).json({ error: 'Email already verified' });
+
+    const token = generateToken();
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await dbUpdateUser(user.username, { emailVerifyToken: token, emailVerifyExpiry: expiry });
+
+    const verifyUrl = `https://esportsduniya.in/verify-email?token=${token}`;
+    await sendEmail(user.email, 'Verify your Esportsduniya email',
+      `<h2>Verify your email</h2><p>Click below to verify your Esportsduniya account:</p><a href="${verifyUrl}" style="display:inline-block;padding:12px 24px;background:#1ee6a7;color:#000;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a><p>This link expires in 24 hours.</p>`
+    );
+
+    res.json({ message: 'Verification email sent' });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not send verification email' });
+  }
+});
+
+// ── Password Reset Endpoints ──
+app.post('/api/forgot-password', authLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+
+  try {
+    const allUsers = await dbGetAllUsers();
+    const user = allUsers.find(u => u.email === email && u.emailVerified);
+
+    if (!user) return res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
+
+    const token = generateToken();
+    const expiry = new Date(Date.now() + 60 * 60 * 1000);
+    await dbUpdateUser(user.username, { resetToken: token, resetTokenExpiry: expiry });
+
+    const resetUrl = `https://esportsduniya.in/reset-password?token=${token}`;
+    await sendEmail(user.email, 'Reset your Esportsduniya password',
+      `<h2>Password Reset</h2><p>Click below to reset your password:</p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#1ee6a7;color:#000;border-radius:8px;text-decoration:none;font-weight:bold">Reset Password</a><p>This link expires in 1 hour. If you didn't request this, ignore this email.</p>`
+    );
+
+    res.json({ message: 'If an account exists with that email, a reset link has been sent.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not process request' });
+  }
+});
+
+app.post('/api/reset-password', authLimiter, async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password required' });
+  if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  try {
+    const allUsers = await dbGetAllUsers();
+    const user = allUsers.find(u => u.resetToken === token);
+    if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
+    if (user.resetTokenExpiry && new Date(user.resetTokenExpiry) < new Date()) {
+      return res.status(400).json({ error: 'Reset token expired. Please request a new one.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await dbUpdateUser(user.username, {
+      password: hashedPassword,
+      resetToken: null,
+      resetTokenExpiry: null,
+    });
+
+    res.json({ message: 'Password reset successful. You can now log in.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not reset password' });
   }
 });
 
@@ -645,10 +886,21 @@ app.put('/api/profile/:username', verifyToken, async (req, res) => {
   }
 });
 
-// ── FanPoints Award ──
+// ── FanPoints Award (server-authoritative — client sends action key, not amount) ──
+const FAN_POINT_ACTIONS = {
+  cheer: 5,
+  prediction: 10,
+  share: 15,
+  daily_challenge: 20,
+  streak_bonus: 25,
+  first_prediction: 50,
+};
+
 app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
-  const { username, points, reason } = req.body;
-  if (!username || !points) return res.status(400).json({ error: 'username and points required' });
+  const { username, action, reason } = req.body;
+  if (!username || !action) return res.status(400).json({ error: 'username and action required' });
+  const points = FAN_POINT_ACTIONS[action];
+  if (!points) return res.status(400).json({ error: `Invalid action. Use: ${Object.keys(FAN_POINT_ACTIONS).join(', ')}` });
   if (req.user.username !== username) {
     return res.status(403).json({ error: 'Cannot award points to another user.' });
   }
@@ -657,7 +909,7 @@ app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
     const user = await dbFindUser(username);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const newPoints = (user.fanPoints || 0) + Number(points);
+    const newPoints = (user.fanPoints || 0) + points;
     const badges = [...(user.badges || [])];
 
     const tiers = [
@@ -675,11 +927,11 @@ app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
     }
 
     const activityLog = [...(user.activityLog || [])];
-    activityLog.unshift({ type: 'points', data: { points: Number(points), reason }, timestamp: Date.now() });
+    activityLog.unshift({ type: 'points', data: { points, reason: reason || action }, timestamp: Date.now() });
 
     await dbUpdateUser(username, { fanPoints: newPoints, badges, activityLog: activityLog.slice(0, 50) });
     const updated = await dbFindUser(username);
-    console.log(`   🪙 FanPoints: +${points} to ${username} (${reason}) → total: ${newPoints}`);
+    console.log(`   🪙 FanPoints: +${points} to ${username} (${action}) → total: ${newPoints}`);
     res.json({ message: 'Points awarded', user: safeUser(updated), newBadges, totalPoints: newPoints });
   } catch (err) {
     res.status(500).json({ error: 'Could not award points.' });
@@ -688,7 +940,7 @@ app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
 
 // ── Predictions: Save a new prediction ──
 app.post('/api/predictions/save', verifyToken, async (req, res) => {
-  const { username, matchId, matchLabel, sport, teamPicked, teamPickedName, wager, odds } = req.body;
+  const { username, matchId, matchLabel, sport, teamPicked, teamPickedName } = req.body;
   if (!username || !matchId || !teamPicked) {
     return res.status(400).json({ error: 'username, matchId, teamPicked required' });
   }
@@ -706,6 +958,8 @@ app.post('/api/predictions/save', verifyToken, async (req, res) => {
       return res.status(409).json({ error: 'Prediction already made for this match', prediction: existing });
     }
 
+    const SERVER_WAGER = 50;
+    const SERVER_ODDS = 1.8;
     const prediction = {
       id: `pred_${Date.now()}`,
       matchId: String(matchId),
@@ -713,9 +967,9 @@ app.post('/api/predictions/save', verifyToken, async (req, res) => {
       sport: sport || 'unknown',
       teamPicked,
       teamPickedName: teamPickedName || teamPicked,
-      wager: Number(wager) || 50,
-      odds: Number(odds) || 1.8,
-      potentialWin: Math.floor((Number(wager) || 50) * (Number(odds) || 1.8)),
+      wager: SERVER_WAGER,
+      odds: SERVER_ODDS,
+      potentialWin: Math.floor(SERVER_WAGER * SERVER_ODDS),
       status: 'pending',
       outcome: null,
       pointsResult: null,
@@ -744,21 +998,38 @@ async function resolveMatchPredictions(match) {
   if (!teamA || !teamB) return;
 
   function parseScore(scoreStr) {
-    if (!scoreStr) return 0;
-    const m = String(scoreStr).match(/\d+/);
-    return m ? parseInt(m[0], 10) : 0;
+    if (scoreStr == null) return NaN;
+    if (typeof scoreStr === 'number') return scoreStr;
+    const s = String(scoreStr).trim();
+    if (!s) return NaN;
+    const m = s.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : NaN;
   }
 
   let winner = null;
+  const sA = parseScore(teamA.score);
+  const sB = parseScore(teamB.score);
+
+  if (isNaN(sA) || isNaN(sB)) return;
+
   if (sport === 'f1') {
-    const pA = parseScore(teamA.score);
-    const pB = parseScore(teamB.score);
-    if (pA > 0 && pB > 0) winner = pA < pB ? 'teamA' : 'teamB';
+    if (sA > 0 && sB > 0) winner = sA < sB ? 'teamA' : (sB < sA ? 'teamB' : null);
+  } else if (sport === 'cricket') {
+    if (match.result) {
+      const rLower = match.result.toLowerCase();
+      const aName = (teamA.name || '').toLowerCase();
+      const bName = (teamB.name || '').toLowerCase();
+      if (aName && rLower.includes(aName) && rLower.includes('won')) winner = 'teamA';
+      else if (bName && rLower.includes(bName) && rLower.includes('won')) winner = 'teamB';
+      else if (rLower.includes('draw') || rLower.includes('tied') || rLower.includes('no result')) winner = null;
+      else if (sA !== sB) winner = sA > sB ? 'teamA' : 'teamB';
+    } else {
+      if (sA !== sB) winner = sA > sB ? 'teamA' : 'teamB';
+    }
   } else {
-    const sA = parseScore(teamA.score);
-    const sB = parseScore(teamB.score);
     if (sA !== sB) winner = sA > sB ? 'teamA' : 'teamB';
   }
+
   if (!winner) return;
 
   try {
@@ -1067,6 +1338,30 @@ app.get('/api/health', (req, res) => {
     ...(mongoConnectionError && { databaseError: mongoConnectionError }),
     ...(mongoUriWarnings.length && !useDatabase && { databaseUriHints: mongoUriWarnings }),
   });
+});
+
+app.get('/api/stats/public', async (req, res) => {
+  try {
+    if (useDatabase) {
+      const [totalUsers, totalPredictions] = await Promise.all([
+        User.countDocuments({}),
+        User.aggregate([{ $project: { count: { $size: { $ifNull: ['$predictions', []] } } } }, { $group: { _id: null, total: { $sum: '$count' } } }]),
+      ]);
+      return res.json({
+        users: totalUsers,
+        predictions: totalPredictions[0]?.total || 0,
+        sports: 5,
+      });
+    }
+    const allUsers = await dbGetAllUsers();
+    res.json({
+      users: allUsers.length,
+      predictions: allUsers.reduce((sum, u) => sum + (u.predictions?.length || 0), 0),
+      sports: 5,
+    });
+  } catch {
+    res.json({ users: 0, predictions: 0, sports: 5 });
+  }
 });
 
 // ============================================
@@ -1660,7 +1955,7 @@ app.get('/api/sports/cricket/upcoming', async (req, res) => {
 // AI NARRATIVE ENDPOINTS
 // ============================================
 
-app.post('/api/ai/narrative', async (req, res) => {
+app.post('/api/ai/narrative', aiLimiter, async (req, res) => {
   const { matchContext, tone } = req.body;
 
   const toneInstructions = {
@@ -1716,7 +2011,7 @@ IMPORTANT: Base your narrative ONLY on real data you found via internet search. 
   }
 });
 
-app.post('/api/ai/preview', async (req, res) => {
+app.post('/api/ai/preview', aiLimiter, async (req, res) => {
   const { matchContext } = req.body;
 
   const prompt = `You are a professional sports form analyst for the Esportsduniya platform.
@@ -1803,7 +2098,7 @@ IMPORTANT: Keep all descriptions extremely brief and concise. The total length o
   }
 });
 
-app.post('/api/ai/momentum', async (req, res) => {
+app.post('/api/ai/momentum', aiLimiter, async (req, res) => {
   const { matchContext, events } = req.body;
 
   const prompt = `You are a sports momentum analyst for the Esportsduniya platform.
@@ -1907,7 +2202,7 @@ RULES:
   }
 });
 
-app.post('/api/ai/social-sentiment', async (req, res) => {
+app.post('/api/ai/social-sentiment', aiLimiter, async (req, res) => {
   const { matchContext } = req.body;
 
   const prompt = `You are a social media sentiment analyst for the Esportsduniya platform.
@@ -2158,7 +2453,7 @@ function normalizeBlogTopic(raw) {
   };
 }
 
-app.post('/api/ai/fifa-prediction', async (req, res) => {
+app.post('/api/ai/fifa-prediction', aiLimiter, async (req, res) => {
   const { match, teamAStats, teamBStats } = req.body;
 
   if (!match || !teamAStats || !teamBStats) {
@@ -2216,7 +2511,7 @@ app.post('/api/ai/fifa-prediction', async (req, res) => {
 });
 
 // ── AI Tactical Analysis ──
-app.post('/api/ai/tactics', async (req, res) => {
+app.post('/api/ai/tactics', aiLimiter, async (req, res) => {
   const { matchContext } = req.body;
 
   const prompt = `You are a professional sports tactical analyst for Esportsduniya.
@@ -2281,8 +2576,14 @@ If you cannot find real-time tactical data for this specific match, base it on t
 });
 
 // ── AI Match Oracle (Contextual Q&A) ──
-app.post('/api/ai/oracle', async (req, res) => {
+app.post('/api/ai/oracle', aiLimiter, async (req, res) => {
   const { matchContext, question, history } = req.body;
+  if (typeof question === 'string' && question.length > 500) {
+    return res.status(400).json({ error: 'Question too long (max 500 chars).' });
+  }
+  if (Array.isArray(history) && history.length > 20) {
+    return res.status(400).json({ error: 'Conversation history too long (max 20 items).' });
+  }
 
   const prompt = `You are "The Oracle", a highly intelligent and witty sports AI for Esportsduniya.
   
@@ -2349,6 +2650,8 @@ If info is unavailable, use your general knowledge but mention you're waiting fo
 // Results are cached for 60 seconds per sport.
 // ============================================
 
+// In a multi-instance (horizontally scaled) setup, replace this in-memory cache with
+// Redis or a shared store. For single-instance deployment this is fine.
 const aiScoresCache = {}; // { sport: { data: [], timestamp: 0 } }
 const AI_CACHE_TTL = 60_000; // 60 seconds
 
@@ -2569,7 +2872,7 @@ app.get('/api/sports/live/:sport', async (req, res) => {
 });
 
 // ── AI Scores Endpoint (per sport) ──
-app.get('/api/sports/ai-scores/:sport', async (req, res) => {
+app.get('/api/sports/ai-scores/:sport', aiLimiter, async (req, res) => {
   const sport = req.params.sport;
   const validSports = ['all', 'cricket', 'football', 'nba', 'tennis', 'f1'];
 
@@ -2916,31 +3219,66 @@ Teams: ${match?.teamA?.name || ''} vs ${match?.teamB?.name || ''}`;
 // FAN ENGAGEMENT ENDPOINTS
 // ============================================
 
-// ── Leaderboard ──
+// ── Leaderboard (paginated, DB-optimized) ──
 app.get('/api/leaderboard', async (req, res) => {
-  const window = req.query.window || 'alltime';
+  const timeWindow = req.query.window || 'alltime';
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(50, parseInt(req.query.limit) || 50);
+  const skip = (page - 1) * limit;
   const today = new Date().toISOString().split('T')[0];
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
   try {
+    if (useDatabase) {
+      const filter = {};
+      if (timeWindow === 'today') filter.lastLoginDate = today;
+      if (timeWindow === 'week') filter.lastLoginDate = { $gte: weekAgo };
+
+      const [ranked, total] = await Promise.all([
+        User.find(filter)
+          .sort({ fanPoints: -1 })
+          .skip(skip)
+          .limit(limit)
+          .select('username fanPoints badges avatar preferences streak')
+          .lean(),
+        User.countDocuments(filter),
+      ]);
+
+      return res.json({
+        leaderboard: ranked.map((u, i) => ({
+          rank: skip + i + 1,
+          username: u.username,
+          fanPoints: u.fanPoints || 0,
+          badges: u.badges || [],
+          avatar: u.avatar || '🦁',
+          favoriteSports: u.preferences?.favoriteSports || [],
+          streak: u.streak || 0,
+        })),
+        window: timeWindow,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      });
+    }
+
     let allUsers = await dbGetAllUsers();
     let filtered = allUsers.filter(u => {
-      if (window === 'today') return u.lastLoginDate === today;
-      if (window === 'week') return u.lastLoginDate && u.lastLoginDate >= weekAgo;
+      if (timeWindow === 'today') return u.lastLoginDate === today;
+      if (timeWindow === 'week') return u.lastLoginDate && u.lastLoginDate >= weekAgo;
       return true;
     });
-    const ranked = filtered
-      .sort((a, b) => (b.fanPoints || 0) - (a.fanPoints || 0))
-      .slice(0, 50)
-      .map((u, i) => ({
-        rank: i + 1,
-        username: u.username,
-        fanPoints: u.fanPoints || 0,
-        badges: u.badges || [],
-        avatar: u.avatar || '🦁',
-        favoriteSports: u.preferences?.favoriteSports || [],
-        streak: u.streak || 0,
-      }));
-    res.json({ leaderboard: ranked, window });
+    filtered.sort((a, b) => (b.fanPoints || 0) - (a.fanPoints || 0));
+    const total = filtered.length;
+    const ranked = filtered.slice(skip, skip + limit).map((u, i) => ({
+      rank: skip + i + 1,
+      username: u.username,
+      fanPoints: u.fanPoints || 0,
+      badges: u.badges || [],
+      avatar: u.avatar || '🦁',
+      favoriteSports: u.preferences?.favoriteSports || [],
+      streak: u.streak || 0,
+    }));
+    res.json({ leaderboard: ranked, window: timeWindow, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     res.status(500).json({ error: 'Could not fetch leaderboard.' });
   }
@@ -3408,6 +3746,53 @@ app.get('/api/og/:matchId', optionalAuth, (req, res) => {
 });
 
 // ============================================
+// SEO MATCH DATA ENDPOINT (for crawlers / SSR)
+// ============================================
+
+app.get('/api/seo/match/:matchId', async (req, res) => {
+  const matchId = sanitiseId(req.params.matchId);
+  try {
+    const sportEndpoints = ['cricket', 'football', 'nba', 'tennis', 'f1'];
+    let matchData = null;
+
+    for (const sport of sportEndpoints) {
+      try {
+        const response = await fetch(`http://localhost:${PORT}/api/sports/live/${sport}`);
+        const data = await response.json();
+        const found = (data.matches || []).find(m => String(m.id) === matchId);
+        if (found) { matchData = found; break; }
+      } catch { continue; }
+    }
+
+    if (!matchData) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    const title = `${escapeHtml(matchData.teamA?.name)} vs ${escapeHtml(matchData.teamB?.name)} - Live Score | Esportsduniya`;
+    const description = `Live score, AI analysis, and predictions for ${escapeHtml(matchData.teamA?.name)} vs ${escapeHtml(matchData.teamB?.name)}. ${escapeHtml(matchData.league || '')}`;
+    const url = `https://esportsduniya.in/match/${matchId}`;
+
+    res.json({
+      title,
+      description,
+      url,
+      match: {
+        id: matchId,
+        teamA: matchData.teamA?.name,
+        teamB: matchData.teamB?.name,
+        scoreA: matchData.teamA?.score,
+        scoreB: matchData.teamB?.score,
+        status: matchData.status,
+        league: matchData.league,
+        sport: matchData.sport,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not generate SEO data' });
+  }
+});
+
+// ============================================
 // STRIPE PREMIUM TIER
 // ============================================
 
@@ -3430,8 +3815,8 @@ app.post('/api/premium/checkout', verifyToken, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
-      success_url: `https://www.esportsduniya.in/#profile?premium=success`,
-      cancel_url: `https://www.esportsduniya.in/#profile?premium=cancelled`,
+      success_url: `https://esportsduniya.in/profile?premium=success`,
+      cancel_url: `https://esportsduniya.in/profile?premium=cancelled`,
       metadata: { username },
     });
     res.json({ url: session.url });
@@ -3461,8 +3846,24 @@ app.post('/api/premium/webhook', express.raw({ type: 'application/json' }), asyn
     }
   }
   if (event.type === 'customer.subscription.deleted') {
-    // Handle cancellation if username is available
+    const sub = event.data.object;
+    const username = sub.metadata?.username;
+    if (username) {
+      await dbUpdateUser(username, { isPremium: false, premiumExpiry: null });
+      console.log(`   💎 Premium cancelled: ${username}`);
+    }
   }
+
+  if (event.type === 'invoice.paid') {
+    const invoice = event.data.object;
+    const username = invoice.subscription_details?.metadata?.username || invoice.metadata?.username;
+    if (username) {
+      const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await dbUpdateUser(username, { isPremium: true, premiumExpiry: expiry });
+      console.log(`   💎 Premium renewed: ${username} until ${expiry.toISOString()}`);
+    }
+  }
+
   res.json({ received: true });
 });
 
@@ -3757,6 +4158,52 @@ async function generateDailyArticles() {
 cron.schedule('0 6,12,18 * * *', async () => {
   console.log('   ⏰ Blog Cron: Starting automated article generation');
   await generateDailyArticles();
+});
+
+cron.schedule('*/10 * * * *', () => {
+  const url = `http://localhost:${PORT}/api/health`;
+  fetch(url).catch(() => {});
+});
+
+// P3-3: Push reminders — notify users 30 minutes before matches involving their favorite teams
+cron.schedule('*/15 * * * *', async () => {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+  try {
+    const allUsers = await dbGetAllUsers();
+    const usersWithPush = allUsers.filter(u => u.pushSubscriptions?.length && u.preferences?.favoriteSports?.length);
+    if (!usersWithPush.length) return;
+
+    const sportsToCheck = [...new Set(usersWithPush.flatMap(u => u.preferences.favoriteSports))];
+    for (const sport of sportsToCheck) {
+      try {
+        const res = await fetch(`http://localhost:${PORT}/api/sports/live/${sport}`);
+        const data = await res.json();
+        const upcoming = (data.matches || []).filter(m => m.status === 'upcoming' || m.status === 'not_started');
+        for (const match of upcoming) {
+          const matchTime = match.startTime ? new Date(match.startTime) : null;
+          if (!matchTime) continue;
+          const minsUntil = (matchTime - Date.now()) / 60000;
+          if (minsUntil > 0 && minsUntil <= 35) {
+            const label = `${match.teamA?.name || '?'} vs ${match.teamB?.name || '?'}`;
+            for (const user of usersWithPush) {
+              if (!user.preferences.favoriteSports.includes(sport)) continue;
+              const reminderKey = `reminder_${match.id}_${user.username}`;
+              if (global[reminderKey]) continue;
+              global[reminderKey] = true;
+              setTimeout(() => { delete global[reminderKey]; }, 60 * 60 * 1000);
+              sendPushToUser(user.username, {
+                title: `${label} starts soon!`,
+                body: `Your ${sport} match kicks off in ~${Math.round(minsUntil)} minutes.`,
+                url: `/match/${match.id}`,
+              });
+            }
+          }
+        }
+      } catch { /* skip sport */ }
+    }
+  } catch (err) {
+    console.error('Match reminder cron error:', err.message);
+  }
 });
 
 // Generate articles on startup (after a short delay so the server is ready)
@@ -4074,10 +4521,97 @@ ${urls}
   }
 });
 
-// Admin: manually trigger article generation
-app.post('/api/blog/generate', verifyToken, async (req, res) => {
+// ============================================
+// ADMIN API
+// ============================================
+
+async function requireAdmin(req, res, next) {
   const user = await dbFindUser(req.user.username);
   if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+  next();
+}
+
+app.get('/api/admin/stats', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const allUsers = await dbGetAllUsers();
+    const now = new Date();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+    const totalUsers = allUsers.length;
+    const premiumUsers = allUsers.filter(u => u.isPremium).length;
+    const activeToday = allUsers.filter(u => u.lastLoginDate === now.toISOString().split('T')[0]).length;
+    const activeWeek = allUsers.filter(u => {
+      if (!u.lastLoginDate) return false;
+      return new Date(u.lastLoginDate) >= weekAgo;
+    }).length;
+    const totalPredictions = allUsers.reduce((sum, u) => sum + (u.predictions?.length || 0), 0);
+    const totalFanPoints = allUsers.reduce((sum, u) => sum + (u.fanPoints || 0), 0);
+
+    res.json({ totalUsers, premiumUsers, activeToday, activeWeek, totalPredictions, totalFanPoints });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch stats' });
+  }
+});
+
+app.get('/api/admin/users', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, parseInt(req.query.limit) || 20);
+    const search = req.query.search?.toLowerCase() || '';
+
+    let allUsers = await dbGetAllUsers();
+    if (search) {
+      allUsers = allUsers.filter(u => u.username?.toLowerCase().includes(search));
+    }
+    allUsers.sort((a, b) => (b.fanPoints || 0) - (a.fanPoints || 0));
+
+    const total = allUsers.length;
+    const users = allUsers.slice((page - 1) * limit, page * limit).map(u => ({
+      username: u.username,
+      avatar: u.avatar,
+      fanPoints: u.fanPoints || 0,
+      streak: u.streak || 0,
+      isPremium: u.isPremium || false,
+      isAdmin: u.isAdmin || false,
+      predictions: u.predictions?.length || 0,
+      badges: u.badges?.length || 0,
+      lastLoginDate: u.lastLoginDate,
+      createdAt: u._id?.getTimestamp?.() || null,
+    }));
+
+    res.json({ users, total, page, pages: Math.ceil(total / limit) });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch users' });
+  }
+});
+
+app.post('/api/admin/user/:username/toggle-premium', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const isPremium = !user.isPremium;
+    await dbUpdateUser(req.params.username, { isPremium, premiumExpiry: isPremium ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null });
+    res.json({ message: `${req.params.username} premium ${isPremium ? 'enabled' : 'disabled'}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+app.post('/api/admin/user/:username/toggle-admin', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    if (req.params.username === req.user.username) return res.status(400).json({ error: 'Cannot change your own admin status' });
+    const user = await dbFindUser(req.params.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await dbUpdateUser(req.params.username, { isAdmin: !user.isAdmin });
+    res.json({ message: `${req.params.username} admin ${!user.isAdmin ? 'granted' : 'revoked'}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Admin: manually trigger article generation
+app.post('/api/blog/generate', verifyToken, requireAdmin, async (req, res) => {
   res.json({ message: 'Article generation started in background' });
   generateDailyArticles().catch(err => console.error('Manual blog gen error:', err.message));
 });
@@ -4087,6 +4621,10 @@ app.post('/api/blog/generate', verifyToken, async (req, res) => {
 // ============================================
 // WebSocket is attached to the same HTTP server so Railway only needs one port.
 // In dev this also works — ws://localhost:3001 (instead of the old :3002).
+
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 const httpServer = createServer(app);
 

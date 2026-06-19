@@ -20,21 +20,26 @@ export function createFooter() {
             <nav class="ed-footer-links" aria-label="Footer navigation">
                 <div class="ed-footer-col">
                     <h3>Live Scores</h3>
-                    <a href="#cricket">🏏 Cricket Live Score</a>
-                    <a href="#football">⚽ Football Live Score</a>
-                    <a href="#nba">🏀 NBA Live Score</a>
-                    <a href="#tennis">🎾 Tennis Live Score</a>
-                    <a href="#f1">🏎️ F1 Live Results</a>
+                    <a href="/sport/cricket">🏏 Cricket Live Score</a>
+                    <a href="/sport/football">⚽ Football Live Score</a>
+                    <a href="/sport/basketball">🏀 NBA Live Score</a>
+                    <a href="/sport/tennis">🎾 Tennis Live Score</a>
+                    <a href="/sport/f1">🏎️ F1 Live Results</a>
                 </div>
                 <div class="ed-footer-col">
                     <h3>Features</h3>
-                    <a href="#dashboard">📊 Live Dashboard</a>
-                    <a href="#timemachine">⏳ Time Machine</a>
-                    <a href="#crowdpulse">🌍 Crowd Pulse</a>
+                    <a href="/">📊 Live Dashboard</a>
+                    <a href="/timemachine">⏳ Time Machine</a>
+                    <a href="/crowdpulse">🌍 Crowd Pulse</a>
+                    <a href="/arena">🎯 Prediction Arena</a>
                 </div>
                 <div class="ed-footer-col">
-                    <h3>Sports Coverage</h3>
-                    <p class="ed-footer-text">IPL, Premier League, La Liga, Champions League, NBA Regular Season, ATP Tour, WTA, Grand Slams, Formula 1, ICC World Cup, and more.</p>
+                    <h3>Company</h3>
+                    <a href="/about">About</a>
+                    <a href="/contact">Contact</a>
+                    <a href="/privacy">Privacy Policy</a>
+                    <a href="/terms">Terms of Service</a>
+                    <a href="/pricing">Pro Plans</a>
                 </div>
             </nav>
 

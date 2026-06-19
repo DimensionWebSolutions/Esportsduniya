@@ -3,7 +3,7 @@
    ============================================ */
 
 import { createMatchActions } from './ShareFavorites.js';
-import { shareMatch } from './ShareCard.js';
+import { shareMatch, shareMatchWhatsApp } from './ShareCard.js';
 
 function showToast(msg) {
   const t = document.createElement('div');
@@ -101,6 +101,7 @@ export function createMatchCard(match, onClick) {
     </div>
     <div class="match-card-footer">
       ${match.status === 'upcoming' ? `<button class="remind-btn" aria-label="Set reminder for this match">🔔 Remind Me</button>` : ''}
+      <button class="wa-share-btn" aria-label="Share on WhatsApp" style="background:rgba(37,211,102,0.15);border:1px solid rgba(37,211,102,0.3);color:#25d366;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:0.85rem">💬 WhatsApp</button>
       <button class="share-card-btn" aria-label="Share this match">📤 Share</button>
     </div>
   `;
@@ -118,12 +119,19 @@ export function createMatchCard(match, onClick) {
     });
   }
 
-  // Share button
+  // Share buttons
   const shareBtn = card.querySelector('.share-card-btn');
   if (shareBtn) {
     shareBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       shareMatch(match);
+    });
+  }
+  const waBtn = card.querySelector('.wa-share-btn');
+  if (waBtn) {
+    waBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      shareMatchWhatsApp(match);
     });
   }
 

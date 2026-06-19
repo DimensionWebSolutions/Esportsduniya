@@ -114,6 +114,11 @@ export default function AppShell({ onLogin, shellReady }) {
   }, [onLogin]);
 
   useEffect(() => {
+    document.documentElement.style.setProperty('--island-height', '56px');
+    document.documentElement.style.setProperty('--rail-width', '72px');
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     (async () => {
       document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');

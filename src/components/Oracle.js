@@ -95,6 +95,11 @@ export function initOracle(matchId) {
 
     // Lock logic
     widget.querySelector('#lock-pred').addEventListener('click', async () => {
+        const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+        if (!currentUser?.username) {
+            document.dispatchEvent(new CustomEvent('esd:open-login'));
+            return;
+        }
         if (!selected) {
             alert('Please select a team first!');
             return;
@@ -113,7 +118,6 @@ export function initOracle(matchId) {
         showLockedState(prediction);
 
         // ── Sync prediction to server ──
-        const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
         const API_BASE = import.meta.env.VITE_API_URL || '';
         if (currentUser?.username) {
             try {

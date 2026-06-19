@@ -20,8 +20,8 @@ import './styles/moments.css';
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
 import App from './App.jsx';
-import { gsap } from 'gsap';
 
 function Root() {
   const [loginOpen, setLoginOpen] = useState(false);
@@ -39,9 +39,11 @@ function Root() {
   }, []);
 
   return (
-    <BrowserRouter>
-      <App loginOpen={loginOpen} setLoginOpen={setLoginOpen} />
-    </BrowserRouter>
+    <HelmetProvider>
+      <BrowserRouter>
+        <App loginOpen={loginOpen} setLoginOpen={setLoginOpen} />
+      </BrowserRouter>
+    </HelmetProvider>
   );
 }
 
@@ -49,5 +51,7 @@ const appEl = document.getElementById('app');
 if (appEl) {
   const root = ReactDOM.createRoot(appEl);
   root.render(<Root />);
-  gsap.fromTo(appEl, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: 'power2.out' });
+  import('gsap').then(({ gsap }) => {
+    gsap.fromTo(appEl, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: 'power2.out' });
+  });
 }

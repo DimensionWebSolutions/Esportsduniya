@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { apiUrl } from '../config/apiBase.js';
 
 const RIVALRIES = [
@@ -41,6 +42,9 @@ export default function PredictionArena() {
 
   return (
     <div className="arena-page">
+      <Helmet>
+        <title>Prediction Arena — Skill-Rated Predictions | Esportsduniya</title>
+      </Helmet>
       <header className="arena-hero">
         <h1>◈ Prediction Arena</h1>
         <p>Weekly Oracle seasons · Rivalry rooms · Calibration score against crowd belief and AI reads</p>

@@ -2,6 +2,8 @@
    ESPORTSDUNIYA — Daily Challenges Component
    ============================================ */
 
+import { trackEvent, EVENTS } from '../services/analytics.js';
+
 const CHALLENGE_SETS = [
   [ // Sunday
     { id: 'oracle2', icon: '🔮', title: 'Oracle Prophet', desc: 'Make 2 Oracle predictions', target: 2, trackKey: 'esd_oracle_count' },
@@ -91,7 +93,7 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-async function awardPoints(points, reason) {
+async function awardPoints(action, reason) {
   const user = JSON.parse(localStorage.getItem('user') || 'null');
   const token = localStorage.getItem('token');
   if (!user?.username || !token) return;
@@ -103,7 +105,7 @@ async function awardPoints(points, reason) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ username: user.username, points, reason }),
+      body: JSON.stringify({ username: user.username, action, reason }),
     });
     const data = await res.json();
     if (data.user) {
@@ -190,7 +192,7 @@ export function createDailyChallenges() {
     for (const c of challenges) {
       if (!completed.includes(c.id) && isDone(c)) {
         markChallengeComplete(c.id);
-        await awardPoints(50, `Daily challenge: ${c.title}`);
+        await awardPoints('daily_challenge', `Daily challenge: ${c.title}`);
         showToast(`✅ Challenge complete: ${c.title} +50 pts!`);
         changed = true;
       }
@@ -201,7 +203,7 @@ export function createDailyChallenges() {
     const bonusKey = `esd_bonus_${getToday()}`;
     if (allDone && !localStorage.getItem(bonusKey)) {
       localStorage.setItem(bonusKey, '1');
-      await awardPoints(25, 'All daily challenges bonus');
+      await awardPoints('streak_bonus', 'All daily challenges bonus');
       showToast('🎉 All challenges done! Bonus +25 pts!');
       changed = true;
     }
@@ -234,6 +236,7 @@ export function trackCheerAction() {
   const today = getToday();
   localStorage.setItem(`esd_cheered_${today}`, '1');
   syncChallengeProgress('cheer');
+  trackEvent(EVENTS.CHEER);
 }
 
 export function trackShareAction() {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { LIVE_CROWD_PULSE, SPORTS } from '../data/mockData.js';
+import { Helmet } from 'react-helmet-async';
+import { SPORTS } from '../data/mockData.js';
 import { fetchLiveMatches, getLiveScoresMeta } from '../services/apiService.js';
 import { createMatchCard } from '../components/MatchCard.js';
 import { createFooter } from '../components/Footer.js';
@@ -42,6 +43,7 @@ export default function HomePage() {
   const [error, setError] = useState('');
   const [meta, setMeta] = useState(null);
   const [trending, setTrending] = useState([]);
+  const [socialStats, setSocialStats] = useState(null);
   const { user, favSports } = readPrefs();
 
   const goMatch = useCallback((m) => {
@@ -79,6 +81,13 @@ export default function HomePage() {
     fetch(apiUrl('/api/trending'))
       .then(r => r.json())
       .then(d => setTrending(d.trending || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch(apiUrl('/api/stats/public'))
+      .then(r => r.json())
+      .then(setSocialStats)
       .catch(() => {});
   }, []);
 
@@ -127,8 +136,6 @@ export default function HomePage() {
     .sort((a, b) => (b.momentum || 0) - (a.momentum || 0))
     .slice(0, 4);
   const activeSports = SPORTS.filter(s => s.id !== 'all');
-  const featuredPulse = LIVE_CROWD_PULSE.slice(0, 5);
-
   const setSport = (id) => {
     setActiveSport(id);
     navigate(id === 'all' ? '/' : `/sport/${id}`, { replace: true });
@@ -136,6 +143,9 @@ export default function HomePage() {
 
   return (
     <div className="home-v2">
+      <Helmet>
+        <title>Esportsduniya — Live Sports Scores, AI Insights &amp; Predictions</title>
+      </Helmet>
       <header className="home-hero home-cockpit-hero">
         <div className="home-hero-copy">
           <span className="home-kicker">EsportsDuniya Fan Operating System</span>
@@ -161,6 +171,18 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {socialStats && (
+        <div className="home-social-proof" style={{
+          display: 'flex', justifyContent: 'center', gap: 32, padding: '12px 20px',
+          background: 'rgba(30,230,167,0.04)', borderBottom: '1px solid rgba(30,230,167,0.1)',
+          fontSize: '0.85rem', color: '#aaa', flexWrap: 'wrap',
+        }}>
+          <span><strong style={{ color: '#1ee6a7' }}>{socialStats.users.toLocaleString()}</strong> fans joined</span>
+          <span><strong style={{ color: '#f8c300' }}>{socialStats.predictions.toLocaleString()}</strong> predictions locked</span>
+          <span><strong style={{ color: '#fff' }}>{socialStats.sports}</strong> sports tracked</span>
+        </div>
+      )}
 
       {liveMatches.length > 0 && (
         <section className="home-command-section" aria-label="Live now">
@@ -209,33 +231,13 @@ export default function HomePage() {
         </section>
       )}
 
-      <section className="home-command-section home-pulse-grid" aria-label="Crowd pulse map">
+      <section className="home-command-section" aria-label="Crowd pulse">
         <div className="home-section-head">
           <div>
-            <h2 className="home-section-title">Crowd Pulse Map</h2>
-            <p>Regional fan heat built from activity, cheers, and match-room signals.</p>
+            <h2 className="home-section-title">Crowd Pulse</h2>
+            <p>Real-time fan energy from cheers and match-room signals.</p>
           </div>
-          <Link to="/crowdpulse" className="home-text-link">Open Pulse</Link>
-        </div>
-        <div className="home-pulse-map">
-          {featuredPulse.map(city => (
-            <div
-              key={city.name}
-              className="home-pulse-city"
-              style={{ left: `${city.x}%`, top: `${city.y}%`, '--pulse': `${city.intensity}%` }}
-              title={`${city.name}: ${city.fans} fans`}
-            >
-              <span />
-            </div>
-          ))}
-        </div>
-        <div className="home-pulse-list">
-          {featuredPulse.map(city => (
-            <div key={city.name} className="home-pulse-row">
-              <span>{city.name}</span>
-              <strong>{city.intensity}%</strong>
-            </div>
-          ))}
+          <Link to="/crowdpulse" className="home-text-link">Open Pulse →</Link>
         </div>
       </section>
 

@@ -3,6 +3,7 @@
    ============================================ */
 
 import { trackShareAction } from './DailyChallenges.js';
+import { trackEvent, EVENTS } from '../services/analytics.js';
 
 const SPORT_COLORS = {
   cricket:  '#22C55E',
@@ -37,11 +38,12 @@ async function awardSharePoints(matchId) {
   if (!user?.username) return;
 
   const API_BASE = import.meta.env.VITE_API_URL || '';
+  const token = localStorage.getItem('token');
   try {
     const res = await fetch(`${API_BASE}/api/fanpoints/award`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user.username, points: 10, reason: 'Shared a match' }),
+      headers: { 'Content-Type': 'application/json', ...(token && { 'Authorization': `Bearer ${token}` }) },
+      body: JSON.stringify({ username: user.username, action: 'share', reason: 'Shared a match' }),
     });
     const data = await res.json();
     if (data.user) {
@@ -123,6 +125,25 @@ function generateShareCanvas(match) {
   return canvas;
 }
 
+export function shareMatchWhatsApp(match) {
+  const text = `⚡ ${match.teamA?.name} ${match.teamA?.score || ''} vs ${match.teamB?.score || ''} ${match.teamB?.name} — ${match.league || ''}\n\nWatch live on Esportsduniya 👇\nhttps://esportsduniya.in/match/${match.id}`;
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank', 'noopener');
+  awardSharePoints(match.id);
+  trackShareAction();
+  trackEvent(EVENTS.SHARE_MOMENT, { match_id: match.id, channel: 'whatsapp' });
+  showToast('Opening WhatsApp... +10 FanPoints 🎉');
+}
+
+export function shareReferral() {
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  const username = user?.username || '';
+  const text = `I'm tracking live sports on Esportsduniya — real-time scores, AI analyst, and prediction arena! Join me 👇\nhttps://esportsduniya.in/?ref=${encodeURIComponent(username)}`;
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank', 'noopener');
+  showToast('Invite sent via WhatsApp! 🎉');
+}
+
 export async function shareMatch(match) {
   const canvas = generateShareCanvas(match);
   const shareText = `${match.teamA?.name} ${match.teamA?.score} vs ${match.teamB?.score} ${match.teamB?.name} — ${match.league} | esportsduniya.in`;
@@ -138,6 +159,7 @@ export async function shareMatch(match) {
         }
         await awardSharePoints(match.id);
         trackShareAction();
+        trackEvent(EVENTS.SHARE_MOMENT, { match_id: match.id });
         showToast('Shared! +10 FanPoints 🎉');
       });
     } else {
@@ -145,6 +167,7 @@ export async function shareMatch(match) {
       await navigator.clipboard.writeText(shareText);
       await awardSharePoints(match.id);
       trackShareAction();
+      trackEvent(EVENTS.SHARE_MOMENT, { match_id: match.id });
       showToast('📋 Copied to clipboard! +10 FanPoints');
     }
   } catch (err) {

@@ -1,163 +1,172 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+function authHeaders() {
+  const token = localStorage.getItem('token');
+  return { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) };
+}
+
 export default function AdminPanel() {
-  const [matches, setMatches] = useState([]);
-  const [newMatch, setNewMatch] = useState({ teamA: '', teamB: '', sport: 'cricket' });
-  const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('matches');
+  const [users, setUsers] = useState([]);
+  const [userMeta, setUserMeta] = useState({ total: 0, page: 1, pages: 1 });
+  const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem('admin_matches');
-    if (stored) {
-      setMatches(JSON.parse(stored));
-    } else {
-      setMatches([
-        { id: 1, teamA: 'Mumbai Indians', teamB: 'Chennai Super Kings', sport: 'cricket' },
-        { id: 2, teamA: 'Arsenal', teamB: 'Manchester City', sport: 'football' },
-      ]);
-    }
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-    // Fetch leaderboard as a proxy for user stats
-    fetch(`${API_BASE}/api/leaderboard?window=alltime`)
-      .then(r => r.json())
-      .then(d => {
-        setUsers(d.leaderboard || []);
-        setStats({
-          totalUsers: d.leaderboard?.length || 0,
-          topFanPoints: d.leaderboard?.[0]?.fanPoints || 0,
-        });
-      })
-      .catch(() => {});
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/stats`, { headers: authHeaders() });
+      if (res.ok) setStats(await res.json());
+    } catch { /* silent */ }
   }, []);
 
-  const saveMatches = (list) => {
-    setMatches(list);
-    localStorage.setItem('admin_matches', JSON.stringify(list));
+  const fetchUsers = useCallback(async (page = 1) => {
+    try {
+      const q = search ? `&search=${encodeURIComponent(search)}` : '';
+      const res = await fetch(`${API_BASE}/api/admin/users?page=${page}&limit=20${q}`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data.users);
+        setUserMeta({ total: data.total, page: data.page, pages: data.pages });
+      }
+    } catch { /* silent */ }
+  }, [search]);
+
+  useEffect(() => {
+    Promise.all([fetchStats(), fetchUsers()]).finally(() => setLoading(false));
+  }, [fetchStats, fetchUsers]);
+
+  const handleAction = async (url, username) => {
+    try {
+      const res = await fetch(`${API_BASE}${url}`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      showToast(data.message || data.error);
+      fetchUsers(userMeta.page);
+      fetchStats();
+    } catch {
+      showToast('Action failed');
+    }
   };
 
-  const handleAdd = (e) => {
-    e.preventDefault();
-    if (!newMatch.teamA || !newMatch.teamB) return;
-    const updated = [...matches, { ...newMatch, id: Date.now() }];
-    saveMatches(updated);
-    setNewMatch({ teamA: '', teamB: '', sport: 'cricket' });
+  const handleGenerateBlog = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/blog/generate`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      showToast(data.message || data.error);
+    } catch {
+      showToast('Failed to trigger blog generation');
+    }
   };
 
-  const handleDelete = (id) => {
-    const updated = matches.filter(m => m.id !== id);
-    saveMatches(updated);
+  const S = {
+    container: { padding: '24px', maxWidth: 900, margin: '0 auto', paddingTop: 'calc(var(--island-height, 60px) + 24px)' },
+    h2: { color: 'var(--accent-cyber, #1ee6a7)', marginBottom: 8 },
+    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 },
+    card: { background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 16, textAlign: 'center' },
+    cardVal: { fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-cyber, #1ee6a7)' },
+    cardLabel: { color: '#aaa', fontSize: '0.8rem', marginTop: 4 },
+    tab: (active) => ({ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', background: active ? 'var(--accent-cyber, #1ee6a7)' : 'rgba(255,255,255,0.07)', color: active ? '#000' : '#aaa', marginRight: 8 }),
+    row: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', marginBottom: 6, background: 'rgba(255,255,255,0.04)', borderRadius: 10, flexWrap: 'wrap' },
+    smallBtn: (color = '#1ee6a7') => ({ padding: '4px 10px', borderRadius: 6, border: `1px solid ${color}33`, background: `${color}18`, color, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }),
+    input: { padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#fff', flex: 1, minWidth: 200 },
+    toast: { position: 'fixed', bottom: 24, right: 24, background: '#1ee6a7', color: '#000', padding: '10px 20px', borderRadius: 8, fontWeight: 600, zIndex: 9999 },
   };
 
-  const tabStyle = (tab) => ({
-    padding: '8px 18px',
-    borderRadius: '8px',
-    border: 'none',
-    cursor: 'pointer',
-    fontWeight: 600,
-    fontSize: '0.9rem',
-    background: activeTab === tab ? 'var(--accent-cyber, #1ee6a7)' : 'rgba(255,255,255,0.07)',
-    color: activeTab === tab ? '#000' : '#aaa',
-    marginRight: '8px',
-  });
+  if (loading) return <div style={{ ...S.container, textAlign: 'center', color: '#aaa' }}>Loading admin data...</div>;
 
   return (
-    <div className="admin-container" style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
-      <h2 style={{ color: 'var(--accent-cyber)', marginBottom: '8px' }}>Admin Panel</h2>
-      <p style={{ color: '#aaa', marginBottom: '20px', fontSize: '0.9rem' }}>
-        Manage matches and view platform stats. Only visible to admin accounts.
-      </p>
+    <div style={S.container}>
+      <h2 style={S.h2}>Admin Panel</h2>
+      <p style={{ color: '#aaa', marginBottom: 20, fontSize: '0.9rem' }}>Live platform data. All actions server-enforced.</p>
 
       {stats && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-          <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent-cyber)' }}>{stats.totalUsers}</div>
-            <div style={{ color: '#aaa', fontSize: '0.85rem' }}>Registered Users</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#f8c300' }}>{stats.topFanPoints.toLocaleString()}</div>
-            <div style={{ color: '#aaa', fontSize: '0.85rem' }}>Top FanPoints</div>
-          </div>
+        <div style={S.grid}>
+          {[
+            { val: stats.totalUsers, label: 'Total Users' },
+            { val: stats.premiumUsers, label: 'Premium' },
+            { val: stats.activeToday, label: 'Active Today' },
+            { val: stats.activeWeek, label: 'Active (7d)' },
+            { val: stats.totalPredictions, label: 'Predictions' },
+            { val: stats.totalFanPoints?.toLocaleString(), label: 'Total FanPoints' },
+          ].map(s => (
+            <div key={s.label} style={S.card}>
+              <div style={S.cardVal}>{s.val}</div>
+              <div style={S.cardLabel}>{s.label}</div>
+            </div>
+          ))}
         </div>
       )}
 
-      <div style={{ marginBottom: '20px' }}>
-        <button style={tabStyle('matches')} onClick={() => setActiveTab('matches')}>Matches</button>
-        <button style={tabStyle('users')} onClick={() => setActiveTab('users')}>Users</button>
+      <div style={{ marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button style={S.tab(activeTab === 'overview')} onClick={() => setActiveTab('overview')}>Overview</button>
+        <button style={S.tab(activeTab === 'users')} onClick={() => setActiveTab('users')}>Users</button>
+        <button style={S.tab(activeTab === 'actions')} onClick={() => setActiveTab('actions')}>Actions</button>
       </div>
 
-      {activeTab === 'matches' && (
-        <>
-          <form onSubmit={handleAdd} className="admin-form" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-            <input
-              type="text" placeholder="Team A" value={newMatch.teamA}
-              onChange={e => setNewMatch({ ...newMatch, teamA: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#fff', flex: 1 }}
-            />
-            <input
-              type="text" placeholder="Team B" value={newMatch.teamB}
-              onChange={e => setNewMatch({ ...newMatch, teamB: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#fff', flex: 1 }}
-            />
-            <select
-              value={newMatch.sport}
-              onChange={e => setNewMatch({ ...newMatch, sport: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(20,20,30,1)', color: '#fff' }}
-            >
-              <option value="cricket">Cricket</option>
-              <option value="football">Football</option>
-              <option value="nba">NBA</option>
-              <option value="tennis">Tennis</option>
-              <option value="f1">F1</option>
-            </select>
-            <button
-              type="submit"
-              style={{ padding: '8px 16px', borderRadius: '8px', background: 'var(--accent-cyber)', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}
-            >
-              Add Match
-            </button>
-          </form>
-
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {matches.map(m => (
-              <li key={m.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 16px', marginBottom: '8px',
-                background: 'rgba(255,255,255,0.04)', borderRadius: '10px',
-              }}>
-                <span style={{ fontWeight: 600 }}>{m.teamA} vs {m.teamB}</span>
-                <span style={{ color: '#aaa', fontSize: '0.85rem', marginLeft: '12px' }}>{m.sport}</span>
-                <button
-                  onClick={() => handleDelete(m.id)}
-                  style={{ marginLeft: 'auto', padding: '4px 12px', borderRadius: '6px', background: 'rgba(255,60,60,0.15)', border: '1px solid rgba(255,60,60,0.3)', color: '#ff6060', cursor: 'pointer' }}
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+      {activeTab === 'overview' && stats && (
+        <div style={{ color: '#ccc', lineHeight: 1.8 }}>
+          <p>Platform health at a glance. User engagement ratio: <strong style={{ color: '#1ee6a7' }}>{stats.totalUsers ? Math.round((stats.activeWeek / stats.totalUsers) * 100) : 0}%</strong> weekly active.</p>
+          <p>Premium conversion: <strong style={{ color: '#f8c300' }}>{stats.totalUsers ? ((stats.premiumUsers / stats.totalUsers) * 100).toFixed(1) : 0}%</strong></p>
+        </div>
       )}
 
       {activeTab === 'users' && (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {users.slice(0, 20).map((u, i) => (
-            <li key={u.username} style={{
-              display: 'flex', alignItems: 'center', gap: '12px',
-              padding: '10px 16px', marginBottom: '6px',
-              background: 'rgba(255,255,255,0.04)', borderRadius: '10px',
-            }}>
-              <span style={{ color: '#aaa', width: '24px', textAlign: 'right' }}>#{i + 1}</span>
-              <span style={{ fontSize: '1.3rem' }}>{u.avatar}</span>
-              <span style={{ fontWeight: 600, flex: 1 }}>{u.username}</span>
-              <span style={{ color: '#f8c300', fontWeight: 700 }}>🪙 {u.fanPoints.toLocaleString()}</span>
-              <span style={{ color: '#aaa', fontSize: '0.8rem' }}>🔥 {u.streak}d</span>
-            </li>
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <input
+              type="text" placeholder="Search username..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && fetchUsers(1)}
+              style={S.input}
+            />
+            <button onClick={() => fetchUsers(1)} style={S.smallBtn()}>Search</button>
+          </div>
+          <p style={{ color: '#888', fontSize: '0.8rem', marginBottom: 8 }}>{userMeta.total} users (page {userMeta.page}/{userMeta.pages})</p>
+
+          {users.map(u => (
+            <div key={u.username} style={S.row}>
+              <span style={{ fontSize: '1.3rem' }}>{u.avatar || '🦁'}</span>
+              <span style={{ fontWeight: 600, flex: 1 }}>
+                {u.username}
+                {u.isAdmin && <span style={{ marginLeft: 6, fontSize: '0.7rem', background: '#ff606033', color: '#ff6060', padding: '2px 6px', borderRadius: 4 }}>ADMIN</span>}
+                {u.isPremium && <span style={{ marginLeft: 6, fontSize: '0.7rem', background: '#f8c30033', color: '#f8c300', padding: '2px 6px', borderRadius: 4 }}>PRO</span>}
+              </span>
+              <span style={{ color: '#f8c300', fontWeight: 700, fontSize: '0.85rem' }}>🪙 {u.fanPoints.toLocaleString()}</span>
+              <span style={{ color: '#aaa', fontSize: '0.8rem' }}>🔥{u.streak}d</span>
+              <span style={{ color: '#aaa', fontSize: '0.8rem' }}>🔮{u.predictions}</span>
+              <button onClick={() => handleAction(`/api/admin/user/${u.username}/toggle-premium`, u.username)} style={S.smallBtn('#f8c300')}>
+                {u.isPremium ? 'Revoke Pro' : 'Grant Pro'}
+              </button>
+              <button onClick={() => handleAction(`/api/admin/user/${u.username}/toggle-admin`, u.username)} style={S.smallBtn('#ff6060')}>
+                {u.isAdmin ? 'Revoke Admin' : 'Grant Admin'}
+              </button>
+            </div>
           ))}
-        </ul>
+
+          {userMeta.pages > 1 && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
+              <button disabled={userMeta.page <= 1} onClick={() => fetchUsers(userMeta.page - 1)} style={S.smallBtn()}>← Prev</button>
+              <button disabled={userMeta.page >= userMeta.pages} onClick={() => fetchUsers(userMeta.page + 1)} style={S.smallBtn()}>Next →</button>
+            </div>
+          )}
+        </>
       )}
+
+      {activeTab === 'actions' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <button onClick={handleGenerateBlog} style={{ ...S.smallBtn(), padding: '12px 20px', fontSize: '0.9rem' }}>
+            Generate Daily Blog Articles
+          </button>
+          <p style={{ color: '#888', fontSize: '0.8rem' }}>Triggers AI article generation for trending sports topics.</p>
+        </div>
+      )}
+
+      {toast && <div style={S.toast}>{toast}</div>}
     </div>
   );
 }

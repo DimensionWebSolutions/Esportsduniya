@@ -49,7 +49,10 @@ export default function FantasyPicks({ match, onClose }) {
 
   const handleSubmit = async () => {
     if (!pick) { setError('Select a team to pick.'); return; }
-    if (!user?.username || !token) { setError('Please log in to make a fantasy pick.'); return; }
+    if (!user?.username || !token) {
+      document.dispatchEvent(new CustomEvent('esd:open-login'));
+      return;
+    }
 
     setLoading(true);
     setError('');

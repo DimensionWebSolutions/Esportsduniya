@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { gsap } from 'gsap';
 import { fetchLiveMatches, fetchMomentumAnalysis, apiUrl } from '../services/apiService.js';
+import { trackEvent, EVENTS } from '../services/analytics.js';
 import { createMomentumEngine, updateMomentumEngine, showMomentumLoading } from '../components/MomentumEngine.js';
 import { createAINarrative, initAINarrative } from '../components/AINarrative.js';
 import { createAIRadio, initAIRadio, queueCommentary } from '../components/AIRadio.js';
@@ -36,6 +38,7 @@ export default function MatchCommandCenter() {
   const narrativeRef = useRef(null);
 
   useEffect(() => {
+    trackEvent(EVENTS.VIEW_MATCH, { match_id: matchId });
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -130,6 +133,9 @@ export default function MatchCommandCenter() {
   if (loading) {
     return (
       <div className="command-center">
+        <Helmet>
+          <title>Match Center | Esportsduniya</title>
+        </Helmet>
         <div className="home-skeleton-card" style={{ height: 200, marginBottom: 24 }} />
         <div className="home-skeleton-grid"><div className="home-skeleton-card" /><div className="home-skeleton-card" /></div>
       </div>
@@ -156,6 +162,10 @@ export default function MatchCommandCenter() {
 
   return (
     <div className="command-center" data-sport={match.sport}>
+      <Helmet>
+        <title>{`${match.teamA?.name} vs ${match.teamB?.name} - Live Score | Esportsduniya`}</title>
+        <meta name="description" content={`Live score and AI analysis for ${match.teamA?.name} vs ${match.teamB?.name}`} />
+      </Helmet>
       <header className="command-header">
         <div className={`command-scoreboard ${isLive ? 'live' : ''}`} style={{ borderColor: isLive ? sportAccent : undefined }}>
           <div className="command-teams">

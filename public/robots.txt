@@ -1,9 +1,11 @@
 # Esportsduniya — robots.txt
 User-agent: *
 Allow: /
+Disallow: /admin
 Disallow: /api/
 
 # Sitemaps
+Sitemap: https://esportsduniya.in/api/sitemap.xml
 Sitemap: https://www.esportsduniya.in/sitemap.xml
 Sitemap: https://www.esportsduniya.in/sitemap-blog.xml
 

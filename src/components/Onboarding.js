@@ -158,11 +158,11 @@ export function showOnboarding(username) {
         }),
       });
 
-      // Award welcome points
+      const token = localStorage.getItem('token');
       const res = await fetch(`${API_BASE}/api/fanpoints/award`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, points: 50, reason: 'Welcome bonus' }),
+        headers: { 'Content-Type': 'application/json', ...(token && { 'Authorization': `Bearer ${token}` }) },
+        body: JSON.stringify({ username, action: 'first_prediction', reason: 'Welcome bonus' }),
       });
       const data = await res.json();
       if (data.user) {
