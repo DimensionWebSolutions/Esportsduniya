@@ -249,16 +249,62 @@ const momentSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Moment = mongoose.models.Moment || mongoose.model('Moment', momentSchema);
 
+let dbReadyResolve;
+const dbReadyPromise = new Promise(resolve => { dbReadyResolve = resolve; });
+
+/** Flush in-memory articles into MongoDB after a late connection (avoids "generated but invisible" bug). */
+async function migrateInMemoryArticlesToMongo() {
+  if (!useDatabase || articles.length === 0) return 0;
+  const pending = [...articles];
+  let migrated = 0;
+  for (const article of pending) {
+    try {
+      const existing = await Article.findOne({ slug: article.slug }).lean();
+      if (existing) continue;
+      await new Article(article).save();
+      migrated++;
+    } catch (err) {
+      if (err.code !== 11000) console.warn(`   ⚠️  MongoDB: Could not migrate article "${article.slug}":`, err.message);
+    }
+  }
+  if (migrated > 0) {
+    console.log(`   ✅ MongoDB: Migrated ${migrated} in-memory article(s) to database`);
+    articles.length = 0;
+  }
+  return migrated;
+}
+
+/** Wait for MongoDB before blog generation so articles are not saved to the wrong store. */
+async function waitForDatabase(timeoutMs = 30000) {
+  if (!MONGODB_URI) {
+    dbReadyResolve(false);
+    return false;
+  }
+  if (useDatabase) return true;
+  try {
+    return await Promise.race([
+      dbReadyPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+    ]);
+  } catch {
+    console.warn('   ⚠️  MongoDB: Connection not ready before blog generation — using in-memory store');
+    return false;
+  }
+}
+
 if (MONGODB_URI) {
   mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
-    .then(() => {
+    .then(async () => {
       useDatabase = true;
       mongoConnectionError = null;
       console.log('   ✅ MongoDB: Connected');
+      await migrateInMemoryArticlesToMongo();
+      dbReadyResolve(true);
     })
     .catch(err => {
       useDatabase = false;
       mongoConnectionError = err.message;
+      dbReadyResolve(false);
       console.warn('   ⚠️  MongoDB: Connection failed — falling back to in-memory store');
       console.warn('   ', err.message);
       if (/bad auth|authentication failed/i.test(err.message)) {
@@ -270,13 +316,17 @@ if (MONGODB_URI) {
     useDatabase = false;
     console.warn('   ⚠️  MongoDB: Disconnected — using in-memory store until reconnected');
   });
-  mongoose.connection.on('reconnected', () => {
+  mongoose.connection.on('reconnected', async () => {
     useDatabase = true;
     mongoConnectionError = null;
     console.log('   ✅ MongoDB: Reconnected');
+    await migrateInMemoryArticlesToMongo();
   });
-} else if (!process.env.MONGODB_URI) {
-  console.log('   ℹ️  MongoDB: No MONGODB_URI set — using in-memory store (data resets on restart)');
+} else {
+  dbReadyResolve(false);
+  if (!process.env.MONGODB_URI) {
+    console.log('   ℹ️  MongoDB: No MONGODB_URI set — using in-memory store (data resets on restart)');
+  }
 }
 
 // ── DB helper wrappers (unified API for both modes) ──
@@ -1034,13 +1084,20 @@ const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-function isKeySet(key, placeholder) {
-  return key && key !== placeholder && key.length > 10;
+function isKeySet(key, ...placeholders) {
+  if (!key || key.length <= 10) return false;
+  const normalized = key.toLowerCase().trim();
+  for (const placeholder of placeholders) {
+    if (normalized === String(placeholder).toLowerCase().trim()) return false;
+  }
+  if (/^your[_\s-]*(gemini|openai|rapidapi|cricapi|api)[_\s-]*(key|api key)/i.test(normalized)) return false;
+  if (/^change_this|^sk_live_your|^price_your|^whsec_your|^your_vapid/i.test(normalized)) return false;
+  return true;
 }
 
-const hasRapidAPI = isKeySet(RAPIDAPI_KEY, 'your_rapidapi_key_here');
-const hasOpenAI = isKeySet(OPENAI_API_KEY, 'your_openai_key_here');
-const hasGemini = isKeySet(GEMINI_API_KEY, 'your_gemini_key_here');
+const hasRapidAPI = isKeySet(RAPIDAPI_KEY, 'your_rapidapi_key_here', 'your rapidapi api key here');
+const hasOpenAI = isKeySet(OPENAI_API_KEY, 'your_openai_key_here', 'your openai api key here');
+const hasGemini = isKeySet(GEMINI_API_KEY, 'your_gemini_key_here', 'your gemini api key here');
 
 // ── Health check ──
 app.get('/api/health', (req, res) => {
@@ -1061,6 +1118,7 @@ app.get('/api/health', (req, res) => {
       openai: hasOpenAI ? 'configured' : 'missing',
       gemini: hasGemini ? 'configured' : 'missing',
       database: dbStatus,
+      blog: hasGemini ? (useDatabase || !process.env.MONGODB_URI ? 'enabled' : 'enabled-no-persistence') : 'disabled-missing-gemini',
       push: (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) ? 'configured' : 'missing',
       premium: stripe ? 'configured' : 'missing',
     },
@@ -3483,13 +3541,15 @@ app.get('/api/premium/status/:username', async (req, res) => {
 
 // Helper: turn a title into a URL-safe slug
 function makeSlug(title) {
-  return title
+  const slug = String(title || '')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 80)
     .replace(/-$/, '');
+  if (slug) return slug;
+  return `article-${Date.now()}`;
 }
 
 // Normalize incoming URL slug: lowercase first, then strip invalid chars
@@ -3524,6 +3584,48 @@ const ARTICLE_HTML_OPTIONS = {
 
 function sanitizeArticleHtml(html) {
   return sanitizeHtml(html || '', ARTICLE_HTML_OPTIONS);
+}
+
+/** Evergreen topics used when live topic discovery fails (prevents zero-article runs). */
+function getFallbackBlogTopics() {
+  const year = new Date().getFullYear();
+  return [
+    {
+      title: `IPL ${year} Live Scores, Points Table and Match Analysis for Indian Fans`,
+      searchQuery: `IPL ${year} live scores points table`,
+      category: 'cricket',
+      keywords: ['IPL live scores', 'IPL points table', 'cricket India', 'T20 cricket', 'live cricket'],
+      angle: 'Round-up of the current IPL season with standings context and how to follow every match live in IST.',
+    },
+    {
+      title: `Premier League ${year - 1}-${String(year).slice(2)} Results, Table and Weekend Preview`,
+      searchQuery: 'Premier League results table today',
+      category: 'football',
+      keywords: ['Premier League', 'EPL table', 'football live scores', 'weekend fixtures', 'soccer India'],
+      angle: 'Analysis of the latest Premier League results and what the table means ahead of the next matchweek.',
+    },
+    {
+      title: `NBA ${year} Playoff Race and Live Scores Guide for Indian Basketball Fans`,
+      searchQuery: 'NBA scores today standings',
+      category: 'nba',
+      keywords: ['NBA scores', 'NBA standings', 'basketball live', 'NBA India', 'playoff race'],
+      angle: 'Explainer on the NBA standings race with tips for following late-night games from India.',
+    },
+    {
+      title: `FIFA World Cup ${year + 1} Qualifiers and Team News: What Indian Fans Should Watch`,
+      searchQuery: 'FIFA World Cup qualifiers news',
+      category: 'football',
+      keywords: ['FIFA World Cup', 'qualifiers', 'football news', 'international football', 'World Cup 2026'],
+      angle: 'Update on World Cup qualifying storylines and marquee nations ahead of the tournament.',
+    },
+    {
+      title: `Virat Kohli and Indian Cricket: Form, Records and Latest News ${year}`,
+      searchQuery: 'Virat Kohli latest news stats',
+      category: 'cricket',
+      keywords: ['Virat Kohli', 'Indian cricket', 'cricket news', 'Kohli records', 'Team India'],
+      angle: 'Feature on Kohli’s recent form, milestones, and narrative around India’s batting lineup.',
+    },
+  ].map(normalizeBlogTopic).filter(Boolean);
 }
 
 // Step 1 — Ask Gemini (with Google Search) for today's trending sports topics
@@ -3634,9 +3736,47 @@ async function discoverArticleTopicsFallback(prompt) {
 }
 
 // Step 2 — Ask Gemini to write a full 1500-2000 word SEO article for a topic
+const BLOG_GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+async function callGeminiForBlog(body, label) {
+  const resp = await fetch(BLOG_GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const errBody = await resp.text();
+    throw new Error(`Gemini ${label} ${resp.status}: ${errBody.slice(0, 240)}`);
+  }
+  const data = await resp.json();
+  const raw = getGeminiText(data);
+  if (!raw) throw new Error(`Empty ${label} response from Gemini`);
+  return raw;
+}
+
+function buildArticleFromGemini(topic, raw) {
+  const { metaDescription, contentHtml } = parseJsonObjectFromText(raw);
+  const sanitized = sanitizeArticleHtml(contentHtml || '');
+  const wordCount = sanitized.replace(/<[^>]+>/g, '').split(/\s+/).filter(Boolean).length;
+  if (wordCount < 200) {
+    throw new Error(`Article too short (${wordCount} words)`);
+  }
+  const readTime = Math.max(1, Math.ceil(wordCount / 200));
+  return {
+    slug: makeSlug(topic.title),
+    title: topic.title,
+    metaDescription: (metaDescription || topic.title).slice(0, 160),
+    category: topic.category || 'general',
+    keywords: topic.keywords || [],
+    contentHtml: sanitized,
+    wordCount,
+    readTime,
+    publishedAt: new Date(),
+  };
+}
+
 async function writeArticle(topic) {
   if (!hasGemini) return null;
-  const slug = makeSlug(topic.title);
   const prompt = `Write a comprehensive, SEO-optimized sports news article for an Indian sports website.
 
 Article brief:
@@ -3666,103 +3806,156 @@ Return a single JSON object — no markdown, no extra text:
   "contentHtml": "Full article HTML content"
 }`;
 
+  const articleSchema = {
+    type: 'OBJECT',
+    properties: {
+      metaDescription: { type: 'STRING' },
+      contentHtml: { type: 'STRING' },
+    },
+    required: ['metaDescription', 'contentHtml'],
+  };
+
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    // Structured JSON without search grounding (search + schema often fails together)
+    const raw = await callGeminiForBlog({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.5,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+        responseSchema: articleSchema,
+      },
+    }, 'structured');
+    return buildArticleFromGemini(topic, raw);
+  } catch (structuredErr) {
+    console.warn(`   ⚠️  Blog: Structured write failed for "${topic.title}", retrying with search…`, structuredErr.message);
+    try {
+      const raw = await callGeminiForBlog({
         contents: [{ parts: [{ text: prompt }] }],
         tools: [{ google_search: {} }],
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              metaDescription: { type: 'STRING' },
-              contentHtml: { type: 'STRING' },
-            },
-            required: ['metaDescription', 'contentHtml'],
-          },
-        },
-      }),
-    });
-    const data = await resp.json();
-    const raw = getGeminiText(data);
-    if (!raw) throw new Error('Empty response from Gemini');
-    const { metaDescription, contentHtml } = parseJsonObjectFromText(raw);
-
-    const wordCount = (contentHtml || '').replace(/<[^>]+>/g, '').split(/\s+/).filter(Boolean).length;
-    const readTime = Math.max(1, Math.ceil(wordCount / 200));
-
-    return {
-      slug,
-      title: topic.title,
-      metaDescription: (metaDescription || '').slice(0, 160),
-      category: topic.category || 'general',
-      keywords: topic.keywords || [],
-      contentHtml: sanitizeArticleHtml(contentHtml || ''),
-      wordCount,
-      readTime,
-      publishedAt: new Date(),
-    };
-  } catch (err) {
-    console.error(`   ❌ Blog: Writing failed for "${topic.title}":`, err.message);
-    return null;
+        generationConfig: { temperature: 0.5, maxOutputTokens: 8192 },
+      }, 'search');
+      return buildArticleFromGemini(topic, raw);
+    } catch (searchErr) {
+      console.error(`   ❌ Blog: Writing failed for "${topic.title}":`, searchErr.message);
+      return null;
+    }
   }
 }
 
 // Step 3 — Orchestrate: discover topics → write 3 new articles
-async function generateDailyArticles() {
-  if (!hasGemini) {
-    console.log('   ℹ️  Blog: Skipping article generation — GEMINI_API_KEY not set');
-    return;
-  }
-  console.log('   📝 Blog: Discovering trending topics...');
-  const topics = await discoverArticleTopics();
-  if (!topics.length) { console.log('   ⚠️  Blog: No topics returned'); return; }
+let blogGenerationState = {
+  running: false,
+  lastRunAt: null,
+  lastRunPublished: 0,
+  lastRunError: null,
+  lastRunSource: null,
+};
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const existing = await dbGetArticles(200);
-  const todaySlugs = new Set(
-    existing
-      .filter(a => new Date(a.publishedAt).toISOString().split('T')[0] === todayStr)
-      .map(a => a.slug)
-  );
+async function generateDailyArticles(source = 'scheduled') {
+  if (blogGenerationState.running) {
+    console.log('   ℹ️  Blog: Generation already in progress — skipping duplicate run');
+    return { published: 0, skipped: true };
+  }
+  if (!hasGemini) {
+    const msg = 'GEMINI_API_KEY not set or still using placeholder value';
+    blogGenerationState.lastRunError = msg;
+    console.log(`   ℹ️  Blog: Skipping article generation — ${msg}`);
+    return { published: 0, error: msg };
+  }
+
+  blogGenerationState.running = true;
+  blogGenerationState.lastRunSource = source;
+  blogGenerationState.lastRunError = null;
 
   let written = 0;
-  for (const topic of topics) {
-    if (written >= 3) break;
-    const slug = makeSlug(topic.title);
-    if (todaySlugs.has(slug)) { console.log(`   ⏭️  Blog: Already published "${topic.title}"`); continue; }
+  try {
+    await waitForDatabase(30000);
 
-    console.log(`   ✍️  Blog: Writing "${topic.title}"...`);
-    const article = await writeArticle(topic);
-    if (article) {
-      const saved = await dbSaveArticle(article);
-      if (saved) {
-        console.log(`   ✅ Blog: Published /blog/${article.slug} (${article.wordCount} words)`);
-        written++;
-      }
+    console.log('   📝 Blog: Discovering trending topics...');
+    let topics = await discoverArticleTopics();
+    if (!topics.length) {
+      console.log('   ⚠️  Blog: Live topic discovery failed — using fallback topics');
+      topics = getFallbackBlogTopics();
     }
-    // Pause between Gemini calls to avoid rate limiting
-    await new Promise(r => setTimeout(r, 3000));
+    if (!topics.length) {
+      const msg = 'No topics available for article generation';
+      blogGenerationState.lastRunError = msg;
+      console.log(`   ⚠️  Blog: ${msg}`);
+      return { published: 0, error: msg };
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const existing = await dbGetArticles(200);
+    const todaySlugs = new Set(
+      existing
+        .filter(a => new Date(a.publishedAt).toISOString().split('T')[0] === todayStr)
+        .map(a => a.slug)
+    );
+
+    for (const topic of topics) {
+      if (written >= 3) break;
+      const slug = makeSlug(topic.title);
+      if (todaySlugs.has(slug)) { console.log(`   ⏭️  Blog: Already published "${topic.title}"`); continue; }
+
+      console.log(`   ✍️  Blog: Writing "${topic.title}"...`);
+      const article = await writeArticle(topic);
+      if (article) {
+        const saved = await dbSaveArticle(article);
+        if (saved) {
+          console.log(`   ✅ Blog: Published /blog/${article.slug} (${article.wordCount} words)`);
+          written++;
+          todaySlugs.add(article.slug);
+        } else {
+          console.log(`   ⏭️  Blog: Skipped duplicate slug /blog/${article.slug}`);
+        }
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    console.log(`   📰 Blog: ${written} article(s) published this run`);
+    blogGenerationState.lastRunPublished = written;
+    if (written === 0 && !blogGenerationState.lastRunError) {
+      blogGenerationState.lastRunError = 'No new articles published (topics exhausted, duplicates, or write failures)';
+    }
+    return { published: written };
+  } catch (err) {
+    blogGenerationState.lastRunError = err.message;
+    console.error('   ❌ Blog: Generation run failed:', err.message);
+    return { published: written, error: err.message };
+  } finally {
+    blogGenerationState.running = false;
+    blogGenerationState.lastRunAt = new Date().toISOString();
   }
-  console.log(`   📰 Blog: ${written} article(s) published this run`);
+}
+
+async function scheduleBlogGeneration(source = 'startup') {
+  const articlesBefore = await dbGetArticles(200);
+  const totalBefore = articlesBefore.length;
+  const result = await generateDailyArticles(source);
+  const totalAfter = (await dbGetArticles(200)).length;
+
+  if (totalAfter === 0 && hasGemini && !result.skipped) {
+    console.log('   🔁 Blog: No articles in store — retrying generation in 60s…');
+    await new Promise(r => setTimeout(r, 60000));
+    await generateDailyArticles(`${source}-retry`);
+  } else if (result.published === 0 && totalBefore === 0 && hasGemini && !result.skipped) {
+    console.log('   🔁 Blog: First run published nothing — retrying in 60s…');
+    await new Promise(r => setTimeout(r, 60000));
+    await generateDailyArticles(`${source}-retry`);
+  }
 }
 
 // Cron: run at 6 AM, 12 PM, 6 PM UTC every day
 cron.schedule('0 6,12,18 * * *', async () => {
   console.log('   ⏰ Blog Cron: Starting automated article generation');
-  await generateDailyArticles();
+  await scheduleBlogGeneration('cron');
 });
 
-// Generate articles on startup (after a short delay so the server is ready)
+// Generate articles on startup after the database is ready
 setTimeout(() => {
-  generateDailyArticles().catch(err => console.error('   ❌ Blog startup generation failed:', err.message));
-}, 15000);
+  scheduleBlogGeneration('startup').catch(err => console.error('   ❌ Blog startup generation failed:', err.message));
+}, 5000);
 
 // ── Blog CSS (inlined into SSR pages) ──
 const BLOG_CSS = `
@@ -3817,6 +4010,30 @@ img{max-width:100%;height:auto}
 `;
 
 // ── Blog route: JSON API (used by the SPA BlogIndex.jsx) ──
+app.get('/api/blog/status', async (_req, res) => {
+  try {
+    const articles = await dbGetArticles(200);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const publishedToday = articles.filter(
+      a => new Date(a.publishedAt).toISOString().split('T')[0] === todayStr
+    ).length;
+
+    res.json({
+      geminiConfigured: hasGemini,
+      database: useDatabase ? 'mongodb' : (process.env.MONGODB_URI ? (mongoConnectionError ? 'connection-failed' : 'connecting') : 'in-memory'),
+      totalArticles: articles.length,
+      publishedToday,
+      generation: blogGenerationState,
+      cronSchedule: '0 6,12,18 * * * (UTC)',
+      persistenceWarning: !useDatabase && process.env.MONGODB_URI
+        ? 'MONGODB_URI is set but not connected — articles will not survive restarts'
+        : (!process.env.MONGODB_URI ? 'Set MONGODB_URI for persistent article storage' : null),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch blog status' });
+  }
+});
+
 app.get('/api/blog', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 20, 50);
@@ -4074,12 +4291,28 @@ ${urls}
   }
 });
 
-// Admin: manually trigger article generation
-app.post('/api/blog/generate', verifyToken, async (req, res) => {
-  const user = await dbFindUser(req.user.username);
-  if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+// Manual trigger: admin JWT or BLOG_GENERATION_SECRET header
+app.post('/api/blog/generate', async (req, res) => {
+  const blogSecret = process.env.BLOG_GENERATION_SECRET;
+  const secretHeader = req.headers['x-blog-secret'];
+  const authorizedBySecret = blogSecret && secretHeader === blogSecret;
+
+  if (!authorizedBySecret) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized — provide admin JWT or X-Blog-Secret header' });
+    }
+    try {
+      const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
+      const user = await dbFindUser(decoded.username);
+      if (!user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+  }
+
   res.json({ message: 'Article generation started in background' });
-  generateDailyArticles().catch(err => console.error('Manual blog gen error:', err.message));
+  scheduleBlogGeneration('manual').catch(err => console.error('Manual blog gen error:', err.message));
 });
 
 // ============================================
