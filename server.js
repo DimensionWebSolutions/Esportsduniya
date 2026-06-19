@@ -95,6 +95,14 @@ const authLimiter = rateLimit({
   message: { error: 'Too many login attempts. Try again in 15 minutes.' },
 });
 
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many verification attempts. Try again in 15 minutes.' },
+});
+
 const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 30,
@@ -752,7 +760,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 });
 
 // ── Email Verification Endpoints ──
-app.get('/api/verify-email', authLimiter, async (req, res) => {
+app.get('/api/verify-email', verifyLimiter, async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).json({ error: 'Token required' });
 
