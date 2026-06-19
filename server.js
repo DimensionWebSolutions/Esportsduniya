@@ -752,7 +752,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 });
 
 // ── Email Verification Endpoints ──
-app.get('/api/verify-email', async (req, res) => {
+app.get('/api/verify-email', authLimiter, async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).json({ error: 'Token required' });
 

@@ -5,8 +5,8 @@ export function trackEvent(eventName, params = {}) {
 }
 
 export function trackPageView(path, title) {
-  if (typeof window.gtag === 'function') {
-    window.gtag('config', 'G-XXXXXXXXXX', {
+  if (typeof window.gtag === 'function' && window.__GA4_ID__) {
+    window.gtag('config', window.__GA4_ID__, {
       page_path: path,
       page_title: title,
     });

@@ -11,13 +11,22 @@
       });
     }
   </script>
-  <!-- Google Analytics 4 -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+  <!-- Google Analytics 4 (loads only when VITE_GA4_ID env var is set at build time) -->
   <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-XXXXXXXXXX');
+    (function() {
+      var id = '%VITE_GA4_ID%';
+      if (!id || id.indexOf('VITE_GA4') !== -1) return;
+      window.__GA4_ID__ = id;
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://www.googletagmanager.com/gtag/js?id=' + id;
+      document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      window.gtag = gtag;
+      gtag('js', new Date());
+      gtag('config', id);
+    })();
   </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -43,7 +52,7 @@
   <meta property="og:title" content="Esportsduniya — Live Sports Scores & AI Insights" />
   <meta property="og:description"
     content="Real-time live scores for Cricket, Football, NBA, Tennis & F1. AI-powered momentum analysis, predictive insights, and an immersive Time Machine to relive sports history." />
-  <meta property="og:image" content="https://www.esportsduniya.in/og-cover.png" />
+  <meta property="og:image" content="https://esportsduniya.in/og-cover.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="Esportsduniya - AI-Powered Live Sports Dashboard" />
@@ -52,11 +61,11 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:url" content="https://www.esportsduniya.in/" />
+  <meta name="twitter:url" content="https://esportsduniya.in/" />
   <meta name="twitter:title" content="Esportsduniya — Live Sports Scores & AI Insights" />
   <meta name="twitter:description"
     content="Real-time live scores for Cricket, Football, NBA, Tennis & F1 with AI-powered analytics." />
-  <meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png" />
+  <meta name="twitter:image" content="https://esportsduniya.in/og-cover.png" />
   <meta name="twitter:image:alt" content="Esportsduniya - AI-Powered Live Sports Dashboard" />
 
   <!-- Canonical URL -->
