@@ -784,7 +784,7 @@ app.get('/api/verify-email', verifyLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/resend-verification', authLimiter, verifyToken, async (req, res) => {
+app.post('/api/resend-verification', verifyLimiter, verifyToken, async (req, res) => {
   try {
     const user = await dbFindUser(req.user.username);
     if (!user?.email) return res.status(400).json({ error: 'No email on account' });
