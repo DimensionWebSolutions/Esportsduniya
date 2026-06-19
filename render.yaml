@@ -8,6 +8,12 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: BLOG_GENERATION_SECRET
+        sync: false
       - key: RAPIDAPI_KEY
         sync: false
       - key: OPENAI_API_KEY
