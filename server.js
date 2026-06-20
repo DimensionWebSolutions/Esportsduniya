@@ -1373,6 +1373,164 @@ app.get('/api/stats/public', async (req, res) => {
 });
 
 // ============================================
+// AGENT DISCOVERY ENDPOINTS (RFC 8288, RFC 9727, etc.)
+// ============================================
+
+const SITE_URL = 'https://esportsduniya.in';
+
+// Link response headers on homepage for agent discovery (RFC 8288)
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path === '/index.html') {
+    res.setHeader('Link', [
+      '</.well-known/api-catalog>; rel="api-catalog"',
+      '</.well-known/mcp/server-card.json>; rel="describedby"',
+      '</auth.md>; rel="service-doc"',
+    ].join(', '));
+  }
+  next();
+});
+
+// API Catalog (RFC 9727)
+app.get('/.well-known/api-catalog', (req, res) => {
+  res.setHeader('Content-Type', 'application/linkset+json');
+  res.json({
+    linkset: [
+      {
+        anchor: `${SITE_URL}/api/`,
+        'service-desc': [{ href: `${SITE_URL}/.well-known/api-catalog`, type: 'application/linkset+json' }],
+        'service-doc': [{ href: `${SITE_URL}/auth.md`, type: 'text/markdown' }],
+        status: [{ href: `${SITE_URL}/api/health` }],
+      },
+    ],
+  });
+});
+
+// MCP Server Card (SEP-1649)
+app.get('/.well-known/mcp/server-card.json', (req, res) => {
+  res.json({
+    serverInfo: {
+      name: 'esportsduniya',
+      version: '1.0.0',
+      description: 'AI-powered live sports platform with real-time scores, predictions, and analytics.',
+    },
+    endpoint: `${SITE_URL}/api/`,
+    capabilities: {
+      tools: true,
+      resources: true,
+      prompts: false,
+    },
+    tools: [
+      { name: 'get_live_scores', description: 'Fetch live match scores for a sport (cricket, football, nba, tennis, f1)', inputSchema: { type: 'object', properties: { sport: { type: 'string', enum: ['cricket', 'football', 'nba', 'tennis', 'f1'] } }, required: ['sport'] } },
+      { name: 'get_match_detail', description: 'Fetch detailed info for a specific match by ID', inputSchema: { type: 'object', properties: { matchId: { type: 'string' } }, required: ['matchId'] } },
+      { name: 'get_ai_analysis', description: 'Get AI-generated match analysis and momentum insights', inputSchema: { type: 'object', properties: { sport: { type: 'string' }, matchContext: { type: 'string' } }, required: ['sport'] } },
+      { name: 'get_leaderboard', description: 'Fetch prediction leaderboard rankings', inputSchema: { type: 'object', properties: { window: { type: 'string', enum: ['alltime', 'week', 'today'] } } } },
+    ],
+  });
+});
+
+// Agent Skills Discovery Index (v0.2.0)
+app.get('/.well-known/agent-skills/index.json', (req, res) => {
+  res.json({
+    $schema: 'https://schemas.agentskills.io/discovery/0.2.0/schema.json',
+    skills: [
+      {
+        name: 'live-scores',
+        type: 'skill-md',
+        description: 'Fetch real-time live sports scores across cricket, football, NBA, tennis, and F1.',
+        url: `${SITE_URL}/auth.md`,
+        digest: 'sha256:placeholder',
+      },
+      {
+        name: 'ai-match-analysis',
+        type: 'skill-md',
+        description: 'Get AI-powered match analysis, momentum insights, and predictive narratives.',
+        url: `${SITE_URL}/auth.md`,
+        digest: 'sha256:placeholder',
+      },
+      {
+        name: 'prediction-arena',
+        type: 'skill-md',
+        description: 'Lock match predictions, view leaderboards, and track calibration scores.',
+        url: `${SITE_URL}/auth.md`,
+        digest: 'sha256:placeholder',
+      },
+    ],
+  });
+});
+
+// OAuth Authorization Server Metadata (RFC 8414)
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  res.json({
+    issuer: SITE_URL,
+    authorization_endpoint: `${SITE_URL}/api/login`,
+    token_endpoint: `${SITE_URL}/api/login`,
+    registration_endpoint: `${SITE_URL}/api/register`,
+    grant_types_supported: ['password'],
+    response_types_supported: ['token'],
+    token_endpoint_auth_methods_supported: ['none'],
+    scopes_supported: ['read', 'write', 'predictions', 'ai'],
+    agent_auth: {
+      skill: `${SITE_URL}/auth.md`,
+      register_uri: `${SITE_URL}/api/register`,
+      identity_types_supported: ['anonymous'],
+      anonymous: {
+        credential_types_supported: ['bearer_token'],
+      },
+    },
+  });
+});
+
+// OAuth Protected Resource Metadata (RFC 9728)
+app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  res.json({
+    resource: SITE_URL,
+    authorization_servers: [SITE_URL],
+    scopes_supported: ['read', 'write', 'predictions', 'ai'],
+    bearer_methods_supported: ['header'],
+  });
+});
+
+// Markdown content negotiation — return markdown for agents requesting it
+app.use((req, res, next) => {
+  const accept = req.headers.accept || '';
+  if (accept.includes('text/markdown') && (req.path === '/' || req.path === '/index.html')) {
+    const md = `# Esportsduniya
+
+AI-powered live sports platform with real-time scores, predictive analytics, and sports history.
+
+## Features
+
+- **Live Scores**: Real-time scores for Cricket, Football, NBA, Tennis, and Formula 1
+- **AI Match Analyst**: AI-generated narratives, momentum analysis, and tactical breakdowns
+- **Prediction Arena**: Lock predictions on live matches, earn FanPoints, climb leaderboards
+- **Time Machine**: Relive iconic sports moments from history
+- **Crowd Pulse**: See global fan activity in real time
+
+## API Endpoints
+
+- \`GET /api/sports/live/:sport\` — Live match scores
+- \`GET /api/health\` — Service health check
+- \`GET /api/leaderboard\` — Prediction leaderboard
+- \`POST /api/ai/narrative\` — AI match narrative (auth required)
+- \`POST /api/ai/oracle\` — AI Q&A about matches (auth required)
+- \`POST /api/register\` — Create account
+- \`POST /api/login\` — Authenticate
+
+## Links
+
+- Website: ${SITE_URL}
+- API Catalog: ${SITE_URL}/.well-known/api-catalog
+- Auth: ${SITE_URL}/auth.md
+`;
+    const tokenEstimate = Math.ceil(md.length / 4);
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('x-markdown-tokens', String(tokenEstimate));
+    return res.send(md);
+  }
+  next();
+});
+
+// ============================================
 // Curated Crowd Pulse (Fan Zone — not live telemetry)
 // ============================================
 const CURATED_CROWD_PULSE = [

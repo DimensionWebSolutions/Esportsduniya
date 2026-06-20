@@ -158,6 +158,53 @@
 
   <div id="app"></div>
   <script type="module" src="/src/main.jsx"></script>
+
+  <!-- WebMCP: expose site tools to AI agents in the browser -->
+  <script>
+    (function() {
+      if (!navigator.modelContext) return;
+      var API = (window.location.origin.indexOf('localhost') !== -1)
+        ? '' : 'https://esportsduniya.in';
+
+      navigator.modelContext.registerTool({
+        name: 'get_live_scores',
+        description: 'Fetch live match scores for a given sport',
+        inputSchema: {
+          type: 'object',
+          properties: { sport: { type: 'string', enum: ['cricket','football','nba','tennis','f1'], description: 'Sport to query' } },
+          required: ['sport']
+        },
+        execute: function(input) {
+          return fetch(API + '/api/sports/live/' + input.sport)
+            .then(function(r) { return r.json(); });
+        }
+      });
+
+      navigator.modelContext.registerTool({
+        name: 'get_leaderboard',
+        description: 'Fetch prediction arena leaderboard',
+        inputSchema: {
+          type: 'object',
+          properties: { window: { type: 'string', enum: ['alltime','week','today'], description: 'Time window' } }
+        },
+        execute: function(input) {
+          var w = input.window || 'alltime';
+          return fetch(API + '/api/leaderboard?window=' + w)
+            .then(function(r) { return r.json(); });
+        }
+      });
+
+      navigator.modelContext.registerTool({
+        name: 'get_platform_stats',
+        description: 'Fetch public platform statistics (users, predictions, sports)',
+        inputSchema: { type: 'object', properties: {} },
+        execute: function() {
+          return fetch(API + '/api/stats/public')
+            .then(function(r) { return r.json(); });
+        }
+      });
+    })();
+  </script>
 </body>
 
 </html>
