@@ -6,13 +6,7 @@ import { DataTable } from '@/ui/table';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 import { Skeleton } from '@/ui/section';
 
-const LEAGUES = [
-  { id: 'football', label: 'Football' },
-  { id: 'cricket', label: 'Cricket' },
-  { id: 'nba', label: 'NBA' },
-  { id: 'tennis', label: 'Tennis' },
-  { id: 'f1', label: 'F1' },
-];
+import LEAGUES from '@/data/standings-leagues.js';
 
 export default function StandingsPage() {
   const [league, setLeague] = useState('football');

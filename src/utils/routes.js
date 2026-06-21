@@ -1,9 +1,12 @@
 /** Map legacy page ids to React Router paths */
+import { APISPORTS_SPORT_IDS } from '../../lib/sports-registry.js';
+
+const SPORT_IDS = ['cricket', ...APISPORTS_SPORT_IDS];
+
 export function pageIdToPath(pageId) {
   if (!pageId || pageId === 'dashboard') return '/';
   if (pageId.startsWith('match/')) return `/${pageId}`;
-  const sports = ['cricket', 'football', 'nba', 'tennis', 'f1'];
-  if (sports.includes(pageId)) return `/sport/${pageId}`;
+  if (SPORT_IDS.includes(pageId)) return `/sport/${pageId}`;
   const map = {
     standings: '/standings',
     leaderboard: '/leaderboard',

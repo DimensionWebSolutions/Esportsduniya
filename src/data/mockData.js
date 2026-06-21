@@ -13,14 +13,7 @@ export const LIVE_CROWD_PULSE = [
    ESPORTSDUNIYA — Mock Data
    ============================================ */
 
-export const SPORTS = [
-    { id: 'all', label: 'All Sports', icon: '🌍' },
-    { id: 'cricket', label: 'Cricket', icon: '🏏' },
-    { id: 'football', label: 'Football', icon: '⚽' },
-    { id: 'nba', label: 'NBA', icon: '🏀' },
-    { id: 'tennis', label: 'Tennis', icon: '🎾' },
-    { id: 'f1', label: 'F1', icon: '🏎️' },
-];
+export { SPORTS } from '../../lib/sports-registry.js';
 
 export const LIVE_MATCHES = [
     {

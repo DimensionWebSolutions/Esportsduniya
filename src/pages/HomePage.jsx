@@ -79,7 +79,8 @@ export default function HomePage() {
         </div>
       )}
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
+      <div className="mb-6 -mx-1 overflow-x-auto pb-1">
+        <div className="flex min-w-max flex-wrap items-center gap-2 px-1">
         {SPORTS.map(s => (
           <Button
             key={s.id}
@@ -94,6 +95,7 @@ export default function HomePage() {
           <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
           Refresh
         </Button>
+        </div>
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted">
@@ -144,13 +146,9 @@ export default function HomePage() {
         ) : prioritized.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted">
             <p>No {activeSport === 'all' ? '' : `${activeSport} `}matches right now.</p>
-            {activeSport === 'football' && (
+            {activeSport !== 'all' && activeSport !== 'cricket' && (
               <p className="mx-auto mt-3 max-w-md text-sm">
-                Football needs a valid <code className="text-foreground">APISPORTS_KEY</code> on the server.
-                Get a free key at{' '}
-                <a href="https://www.api-football.com/" className="text-accent hover:underline" target="_blank" rel="noreferrer">
-                  api-football.com
-                </a>.
+                Live {activeSport} scores use API-Sports. Ensure <code className="text-foreground">APISPORTS_KEY</code> is set on the server.
               </p>
             )}
           </div>

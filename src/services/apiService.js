@@ -255,7 +255,7 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
 
     const refreshParam = options.forceRefresh ? '&refresh=1' : '';
     const url = `${API_BASE}/api/sports/live/${sport}?t=${Date.now()}${refreshParam}`;
-    const timeoutMs = sport === 'all' ? 90000 : 45000;
+    const timeoutMs = sport === 'all' ? 120_000 : 45_000;
 
     let res;
     try {

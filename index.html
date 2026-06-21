@@ -7,7 +7,11 @@
       var hash = location.hash;
       if (!hash || hash.length <= 1) return;
       var raw = hash.replace(/^#\/?/, '').trim();
-      var sports = { cricket: 1, football: 1, nba: 1, tennis: 1, f1: 1 };
+      var sports = {
+        cricket: 1, football: 1, nba: 1, basketball: 1, tennis: 1, f1: 1,
+        baseball: 1, hockey: 1, handball: 1, volleyball: 1, rugby: 1,
+        mma: 1, nfl: 1, afl: 1,
+      };
       var pages = {
         dashboard: '/',
         standings: '/standings',
