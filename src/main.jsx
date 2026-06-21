@@ -1,57 +1,45 @@
-import './styles/theme.css';
-import './styles/admin.css';
-import './styles/analytics.css';
-import './styles/tokens.css';
-import './styles/tokens-v2.css';
-import './styles/base.css';
-import './styles/components.css';
-import './styles/eras.css';
-import './styles/crowdpulse.css';
-import './styles/features.css';
-import './styles/login.css';
-import './styles/profile.css';
-import './styles/engagement.css';
-import './styles/fifa.css';
-import './styles/home-v2.css';
-import './styles/cockpit.css';
-import './styles/arena.css';
-import './styles/moments.css';
+import './styles/globals.css';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.jsx';
 
-function Root() {
-  const [loginOpen, setLoginOpen] = useState(false);
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: 1, refetchOnWindowFocus: false },
+  },
+});
 
+function Root() {
   useEffect(() => {
-    window.mountLoginScreen = () => setLoginOpen(true);
     window.esportsLogout = () => {
       localStorage.removeItem('user');
       localStorage.removeItem('token');
       window.location.href = '/';
     };
-    const onLoginOpen = () => setLoginOpen(true);
-    document.addEventListener('esd:open-login', onLoginOpen);
-    return () => document.removeEventListener('esd:open-login', onLoginOpen);
+    const loader = document.getElementById('app-loader');
+    if (loader) {
+      loader.style.opacity = '0';
+      loader.style.transition = 'opacity 0.4s';
+      setTimeout(() => loader.remove(), 400);
+    }
   }, []);
 
   return (
-    <HelmetProvider>
-      <BrowserRouter>
-        <App loginOpen={loginOpen} setLoginOpen={setLoginOpen} />
-      </BrowserRouter>
-    </HelmetProvider>
+    <QueryClientProvider client={queryClient}>
+      <HelmetProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </HelmetProvider>
+    </QueryClientProvider>
   );
 }
 
 const appEl = document.getElementById('app');
 if (appEl) {
-  const root = ReactDOM.createRoot(appEl);
-  root.render(<Root />);
-  import('gsap').then(({ gsap }) => {
-    gsap.fromTo(appEl, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: 'power2.out' });
-  });
+  ReactDOM.createRoot(appEl).render(<Root />);
 }

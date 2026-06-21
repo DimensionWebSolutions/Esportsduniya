@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { apiUrl } from '@/config/apiBase';
+import { DashboardLayout } from '@/layouts/PageLayouts';
+import { StatTile, Skeleton } from '@/ui/section';
+import { DataTable } from '@/ui/table';
+import { Button } from '@/ui/button';
+import { Input } from '@/ui/input';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
+import { Badge } from '@/ui/badge';
 
 function authHeaders() {
   const token = localStorage.getItem('token');
@@ -10,163 +16,96 @@ function authHeaders() {
 export default function AdminPanel() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
-  const [userMeta, setUserMeta] = useState({ total: 0, page: 1, pages: 1 });
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/stats`, { headers: authHeaders() });
-      if (res.ok) setStats(await res.json());
-    } catch { /* silent */ }
-  }, []);
-
-  const fetchUsers = useCallback(async (page = 1) => {
+  const fetchAll = useCallback(async () => {
     try {
       const q = search ? `&search=${encodeURIComponent(search)}` : '';
-      const res = await fetch(`${API_BASE}/api/admin/users?page=${page}&limit=20${q}`, { headers: authHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data.users);
-        setUserMeta({ total: data.total, page: data.page, pages: data.pages });
+      const [statsRes, usersRes] = await Promise.all([
+        fetch(apiUrl('/api/admin/stats'), { headers: authHeaders() }),
+        fetch(apiUrl(`/api/admin/users?page=1&limit=20${q}`), { headers: authHeaders() }),
+      ]);
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (usersRes.ok) {
+        const data = await usersRes.json();
+        setUsers(data.users || []);
       }
-    } catch { /* silent */ }
+    } finally {
+      setLoading(false);
+    }
   }, [search]);
 
-  useEffect(() => {
-    Promise.all([fetchStats(), fetchUsers()]).finally(() => setLoading(false));
-  }, [fetchStats, fetchUsers]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const handleAction = async (url, username) => {
+  const action = async (url) => {
     try {
-      const res = await fetch(`${API_BASE}${url}`, { method: 'POST', headers: authHeaders() });
+      const res = await fetch(apiUrl(url), { method: 'POST', headers: authHeaders() });
       const data = await res.json();
       showToast(data.message || data.error);
-      fetchUsers(userMeta.page);
-      fetchStats();
+      fetchAll();
     } catch {
       showToast('Action failed');
     }
   };
 
-  const handleGenerateBlog = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/blog/generate`, { method: 'POST', headers: authHeaders() });
-      const data = await res.json();
-      showToast(data.message || data.error);
-    } catch {
-      showToast('Failed to trigger blog generation');
-    }
-  };
-
-  const S = {
-    container: { padding: '24px', maxWidth: 900, margin: '0 auto', paddingTop: 'calc(var(--island-height, 60px) + 24px)' },
-    h2: { color: 'var(--accent-cyber, #1ee6a7)', marginBottom: 8 },
-    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 },
-    card: { background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 16, textAlign: 'center' },
-    cardVal: { fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-cyber, #1ee6a7)' },
-    cardLabel: { color: '#aaa', fontSize: '0.8rem', marginTop: 4 },
-    tab: (active) => ({ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', background: active ? 'var(--accent-cyber, #1ee6a7)' : 'rgba(255,255,255,0.07)', color: active ? '#000' : '#aaa', marginRight: 8 }),
-    row: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', marginBottom: 6, background: 'rgba(255,255,255,0.04)', borderRadius: 10, flexWrap: 'wrap' },
-    smallBtn: (color = '#1ee6a7') => ({ padding: '4px 10px', borderRadius: 6, border: `1px solid ${color}33`, background: `${color}18`, color, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }),
-    input: { padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#fff', flex: 1, minWidth: 200 },
-    toast: { position: 'fixed', bottom: 24, right: 24, background: '#1ee6a7', color: '#000', padding: '10px 20px', borderRadius: 8, fontWeight: 600, zIndex: 9999 },
-  };
-
-  if (loading) return <div style={{ ...S.container, textAlign: 'center', color: '#aaa' }}>Loading admin data...</div>;
+  const columns = [
+    { key: 'username', header: 'User', render: row => row.username },
+    { key: 'fanPoints', header: 'Points', render: row => <span className="font-data">{row.fanPoints ?? 0}</span> },
+    { key: 'premium', header: 'Premium', render: row => row.isPremium ? <Badge variant="upcoming">Pro</Badge> : '—' },
+    { key: 'admin', header: 'Admin', render: row => row.isAdmin ? 'Yes' : '—' },
+    {
+      key: 'actions',
+      header: '',
+      render: row => (
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => action(`/api/admin/user/${row.username}/toggle-premium`)}>
+            Toggle Pro
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div style={S.container}>
-      <h2 style={S.h2}>Admin Panel</h2>
-      <p style={{ color: '#aaa', marginBottom: 20, fontSize: '0.9rem' }}>Live platform data. All actions server-enforced.</p>
-
-      {stats && (
-        <div style={S.grid}>
-          {[
-            { val: stats.totalUsers, label: 'Total Users' },
-            { val: stats.premiumUsers, label: 'Premium' },
-            { val: stats.activeToday, label: 'Active Today' },
-            { val: stats.activeWeek, label: 'Active (7d)' },
-            { val: stats.totalPredictions, label: 'Predictions' },
-            { val: stats.totalFanPoints?.toLocaleString(), label: 'Total FanPoints' },
-          ].map(s => (
-            <div key={s.label} style={S.card}>
-              <div style={S.cardVal}>{s.val}</div>
-              <div style={S.cardLabel}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button style={S.tab(activeTab === 'overview')} onClick={() => setActiveTab('overview')}>Overview</button>
-        <button style={S.tab(activeTab === 'users')} onClick={() => setActiveTab('users')}>Users</button>
-        <button style={S.tab(activeTab === 'actions')} onClick={() => setActiveTab('actions')}>Actions</button>
-      </div>
-
-      {activeTab === 'overview' && stats && (
-        <div style={{ color: '#ccc', lineHeight: 1.8 }}>
-          <p>Platform health at a glance. User engagement ratio: <strong style={{ color: '#1ee6a7' }}>{stats.totalUsers ? Math.round((stats.activeWeek / stats.totalUsers) * 100) : 0}%</strong> weekly active.</p>
-          <p>Premium conversion: <strong style={{ color: '#f8c300' }}>{stats.totalUsers ? ((stats.premiumUsers / stats.totalUsers) * 100).toFixed(1) : 0}%</strong></p>
-        </div>
-      )}
-
-      {activeTab === 'users' && (
+    <DashboardLayout
+      title="Admin"
+      description="Platform overview and user management."
+      action={
+        <Button size="sm" onClick={() => action('/api/blog/generate')}>Generate blog</Button>
+      }
+    >
+      {loading ? <Skeleton className="h-64" /> : (
         <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <input
-              type="text" placeholder="Search username..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && fetchUsers(1)}
-              style={S.input}
-            />
-            <button onClick={() => fetchUsers(1)} style={S.smallBtn()}>Search</button>
+          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile label="Total users" value={stats?.totalUsers ?? '—'} />
+            <StatTile label="Premium" value={stats?.premiumUsers ?? '—'} />
+            <StatTile label="Predictions" value={stats?.totalPredictions ?? '—'} />
+            <StatTile label="Articles" value={stats?.totalArticles ?? '—'} />
           </div>
-          <p style={{ color: '#888', fontSize: '0.8rem', marginBottom: 8 }}>{userMeta.total} users (page {userMeta.page}/{userMeta.pages})</p>
 
-          {users.map(u => (
-            <div key={u.username} style={S.row}>
-              <span style={{ fontSize: '1.3rem' }}>{u.avatar || '🦁'}</span>
-              <span style={{ fontWeight: 600, flex: 1 }}>
-                {u.username}
-                {u.isAdmin && <span style={{ marginLeft: 6, fontSize: '0.7rem', background: '#ff606033', color: '#ff6060', padding: '2px 6px', borderRadius: 4 }}>ADMIN</span>}
-                {u.isPremium && <span style={{ marginLeft: 6, fontSize: '0.7rem', background: '#f8c30033', color: '#f8c300', padding: '2px 6px', borderRadius: 4 }}>PRO</span>}
-              </span>
-              <span style={{ color: '#f8c300', fontWeight: 700, fontSize: '0.85rem' }}>🪙 {u.fanPoints.toLocaleString()}</span>
-              <span style={{ color: '#aaa', fontSize: '0.8rem' }}>🔥{u.streak}d</span>
-              <span style={{ color: '#aaa', fontSize: '0.8rem' }}>🔮{u.predictions}</span>
-              <button onClick={() => handleAction(`/api/admin/user/${u.username}/toggle-premium`, u.username)} style={S.smallBtn('#f8c300')}>
-                {u.isPremium ? 'Revoke Pro' : 'Grant Pro'}
-              </button>
-              <button onClick={() => handleAction(`/api/admin/user/${u.username}/toggle-admin`, u.username)} style={S.smallBtn('#ff6060')}>
-                {u.isAdmin ? 'Revoke Admin' : 'Grant Admin'}
-              </button>
-            </div>
-          ))}
-
-          {userMeta.pages > 1 && (
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
-              <button disabled={userMeta.page <= 1} onClick={() => fetchUsers(userMeta.page - 1)} style={S.smallBtn()}>← Prev</button>
-              <button disabled={userMeta.page >= userMeta.pages} onClick={() => fetchUsers(userMeta.page + 1)} style={S.smallBtn()}>Next →</button>
-            </div>
-          )}
+          <Tabs defaultValue="users">
+            <TabsList className="mb-4">
+              <TabsTrigger value="users">Users</TabsTrigger>
+            </TabsList>
+            <TabsContent value="users">
+              <div className="mb-4 flex gap-2">
+                <Input placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} />
+                <Button variant="secondary" onClick={fetchAll}>Search</Button>
+              </div>
+              <DataTable columns={columns} data={users.map(u => ({ ...u, id: u.username }))} emptyMessage="No users found." />
+            </TabsContent>
+          </Tabs>
         </>
       )}
-
-      {activeTab === 'actions' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <button onClick={handleGenerateBlog} style={{ ...S.smallBtn(), padding: '12px 20px', fontSize: '0.9rem' }}>
-            Generate Daily Blog Articles
-          </button>
-          <p style={{ color: '#888', fontSize: '0.8rem' }}>Triggers AI article generation for trending sports topics.</p>
+      {toast && (
+        <div className="fixed bottom-6 right-6 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-surface-0 shadow-lg">
+          {toast}
         </div>
       )}
-
-      {toast && <div style={S.toast}>{toast}</div>}
-    </div>
+    </DashboardLayout>
   );
 }

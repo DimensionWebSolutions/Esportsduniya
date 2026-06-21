@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { apiUrl } from '@/config/apiBase';
+import { MarketingLayout } from '@/layouts/PageLayouts';
+import { Button } from '@/ui/button';
+import { Input } from '@/ui/input';
+import { cn } from '@/lib/utils';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
-
-const STYLES = {
-  page: { maxWidth: 420, margin: '0 auto', padding: 'calc(var(--island-height, 60px) + 48px) 20px 80px', color: '#e0e0e0' },
-  h1: { fontSize: '1.6rem', marginBottom: 8, color: 'var(--accent-cyber, #1ee6a7)' },
-  input: { width: '100%', padding: '12px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '0.95rem', marginBottom: 12, boxSizing: 'border-box' },
-  btn: { width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--accent-cyber, #1ee6a7)', color: '#000', fontWeight: 700, fontSize: '1rem', cursor: 'pointer' },
-  msg: { padding: '12px', borderRadius: 8, marginBottom: 16, fontSize: '0.9rem' },
-  backLink: { display: 'inline-block', marginBottom: 24, color: 'var(--accent-cyber, #1ee6a7)', textDecoration: 'none' },
-};
+function StatusMessage({ ok, children }) {
+  return (
+    <div className={cn('mb-4 rounded-lg border px-4 py-3 text-sm', ok ? 'border-win/30 bg-win/10 text-win' : 'border-live/30 bg-live/10 text-live')}>
+      {children}
+    </div>
+  );
+}
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -21,38 +23,27 @@ export function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/forgot-password`, {
+      const res = await fetch(apiUrl('/api/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
-      setStatus({ ok: true, msg: data.message || 'Check your email for the reset link.' });
+      setStatus({ ok: true, msg: data.message });
     } catch {
-      setStatus({ ok: false, msg: 'Network error. Please try again.' });
+      setStatus({ ok: false, msg: 'Network error.' });
     }
     setLoading(false);
   };
 
   return (
-    <div style={STYLES.page}>
-      <Link to="/" style={STYLES.backLink}>← Home</Link>
-      <h1 style={STYLES.h1}>Forgot Password</h1>
-      <p style={{ marginBottom: 24, color: '#aaa' }}>Enter your verified email address and we'll send you a reset link.</p>
-
-      {status && (
-        <div style={{ ...STYLES.msg, background: status.ok ? 'rgba(30,230,167,0.1)' : 'rgba(255,60,60,0.1)', color: status.ok ? '#1ee6a7' : '#ff6060' }}>
-          {status.msg}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} required style={STYLES.input} />
-        <button type="submit" disabled={loading} style={{ ...STYLES.btn, opacity: loading ? 0.6 : 1 }}>
-          {loading ? 'Sending...' : 'Send Reset Link'}
-        </button>
+    <MarketingLayout title="Forgot password" description="Enter your verified email for a reset link.">
+      {status && <StatusMessage ok={status.ok}>{status.msg}</StatusMessage>}
+      <form onSubmit={handleSubmit} className="not-prose max-w-md space-y-4">
+        <Input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} required />
+        <Button type="submit" disabled={loading} className="w-full">{loading ? 'Sending...' : 'Send reset link'}</Button>
       </form>
-    </div>
+    </MarketingLayout>
   );
 }
 
@@ -67,11 +58,9 @@ export function ResetPasswordPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (password !== confirm) return setStatus({ ok: false, msg: 'Passwords do not match.' });
-    if (password.length < 6) return setStatus({ ok: false, msg: 'Password must be at least 6 characters.' });
-
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/reset-password`, {
+      const res = await fetch(apiUrl('/api/reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, newPassword: password }),
@@ -79,43 +68,30 @@ export function ResetPasswordPage() {
       const data = await res.json();
       setStatus({ ok: res.ok, msg: data.message || data.error });
     } catch {
-      setStatus({ ok: false, msg: 'Network error. Please try again.' });
+      setStatus({ ok: false, msg: 'Network error.' });
     }
     setLoading(false);
   };
 
   if (!token) {
     return (
-      <div style={STYLES.page}>
-        <Link to="/" style={STYLES.backLink}>← Home</Link>
-        <h1 style={STYLES.h1}>Invalid Link</h1>
-        <p>This password reset link is invalid. <Link to="/forgot-password" style={{ color: '#1ee6a7' }}>Request a new one</Link>.</p>
-      </div>
+      <MarketingLayout title="Invalid link">
+        <p><Link to="/forgot-password" className="text-accent">Request a new reset link</Link></p>
+      </MarketingLayout>
     );
   }
 
   return (
-    <div style={STYLES.page}>
-      <Link to="/" style={STYLES.backLink}>← Home</Link>
-      <h1 style={STYLES.h1}>Reset Password</h1>
-
-      {status && (
-        <div style={{ ...STYLES.msg, background: status.ok ? 'rgba(30,230,167,0.1)' : 'rgba(255,60,60,0.1)', color: status.ok ? '#1ee6a7' : '#ff6060' }}>
-          {status.msg}
-          {status.ok && <div style={{ marginTop: 8 }}><Link to="/" style={{ color: '#1ee6a7' }}>Go to Home →</Link></div>}
-        </div>
-      )}
-
+    <MarketingLayout title="Reset password">
+      {status && <StatusMessage ok={status.ok}>{status.msg}{status.ok && <div className="mt-2"><Link to="/" className="underline">Go home</Link></div>}</StatusMessage>}
       {!status?.ok && (
-        <form onSubmit={handleSubmit}>
-          <input type="password" placeholder="New password" value={password} onChange={e => setPassword(e.target.value)} required style={STYLES.input} />
-          <input type="password" placeholder="Confirm password" value={confirm} onChange={e => setConfirm(e.target.value)} required style={STYLES.input} />
-          <button type="submit" disabled={loading} style={{ ...STYLES.btn, opacity: loading ? 0.6 : 1 }}>
-            {loading ? 'Resetting...' : 'Reset Password'}
-          </button>
+        <form onSubmit={handleSubmit} className="not-prose max-w-md space-y-4">
+          <Input type="password" placeholder="New password" value={password} onChange={e => setPassword(e.target.value)} required />
+          <Input type="password" placeholder="Confirm password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
+          <Button type="submit" disabled={loading} className="w-full">{loading ? 'Resetting...' : 'Reset password'}</Button>
         </form>
       )}
-    </div>
+    </MarketingLayout>
   );
 }
 
@@ -123,29 +99,21 @@ export function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const [status, setStatus] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!token);
 
   useEffect(() => {
-    if (!token) { setLoading(false); return; }
-    fetch(`${API_BASE}/api/verify-email?token=${token}`)
+    if (!token) return;
+    fetch(apiUrl(`/api/verify-email?token=${token}`))
       .then(r => r.json())
       .then(data => setStatus({ ok: !data.error, msg: data.message || data.error }))
-      .catch(() => setStatus({ ok: false, msg: 'Verification failed. Please try again.' }))
+      .catch(() => setStatus({ ok: false, msg: 'Verification failed.' }))
       .finally(() => setLoading(false));
   }, [token]);
 
   return (
-    <div style={STYLES.page}>
-      <Link to="/" style={STYLES.backLink}>← Home</Link>
-      <h1 style={STYLES.h1}>Email Verification</h1>
-      {loading && <p>Verifying your email...</p>}
-      {!loading && !token && <p>Invalid verification link.</p>}
-      {status && (
-        <div style={{ ...STYLES.msg, background: status.ok ? 'rgba(30,230,167,0.1)' : 'rgba(255,60,60,0.1)', color: status.ok ? '#1ee6a7' : '#ff6060' }}>
-          {status.msg}
-          {status.ok && <div style={{ marginTop: 8 }}><Link to="/" style={{ color: '#1ee6a7' }}>Go to Home →</Link></div>}
-        </div>
-      )}
-    </div>
+    <MarketingLayout title="Email verification">
+      {loading && <p className="text-muted">Verifying...</p>}
+      {status && <StatusMessage ok={status.ok}>{status.msg}{status.ok && <div className="mt-2"><Link to="/" className="underline">Go home</Link></div>}</StatusMessage>}
+    </MarketingLayout>
   );
 }

@@ -1,176 +1,79 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { apiUrl } from '../config/apiBase.js';
-
-const RIVALRIES = [
-  { id: 'mi-csk', label: 'MI vs CSK', filter: /mumbai|chennai/i },
-  { id: 'ind-pak', label: 'India vs Pakistan', filter: /india|pakistan/i },
-  { id: 'el-clasico', label: 'El Clásico', filter: /barcelona|real madrid/i },
-];
+import { apiUrl } from '@/config/apiBase';
+import { useAuth } from '@/hooks/useAuth';
+import { DashboardLayout } from '@/layouts/PageLayouts';
+import { DataTable } from '@/ui/table';
+import { StatTile } from '@/ui/section';
+import { Button } from '@/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
+import { Skeleton } from '@/ui/section';
 
 export default function PredictionArena() {
+  const { user } = useAuth();
   const [season, setSeason] = useState(null);
-  const [tab, setTab] = useState('season');
-  const [rivalry, setRivalry] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const user = JSON.parse(localStorage.getItem('user') || 'null');
 
   useEffect(() => {
     setLoading(true);
     fetch(apiUrl('/api/arena/season'))
       .then(r => r.json())
-      .then(data => {
-        setSeason(data);
-        setError('');
-      })
+      .then(data => { setSeason(data); setError(''); })
       .catch(() => setError('Could not load arena standings'))
       .finally(() => setLoading(false));
   }, []);
 
   const standings = season?.standings || [];
-  const myRank = user?.username
-    ? standings.findIndex(s => s.username === user.username) + 1
-    : 0;
   const myStats = standings.find(s => s.username === user?.username);
+  const myRank = user?.username ? standings.findIndex(s => s.username === user.username) + 1 : 0;
 
-  const rivalryBoard = rivalry
-    ? (season?.rivalries?.[rivalry.id] || []).slice(0, 20)
-    : [];
+  const columns = [
+    { key: 'rank', header: 'Rank', render: row => `#${row.rank ?? standings.indexOf(row) + 1}`, className: 'font-data w-16' },
+    { key: 'username', header: 'Player', render: row => row.username },
+    { key: 'calibrationScore', header: 'Calibration', render: row => <span className="font-data">{row.calibrationScore ?? '—'}</span> },
+    { key: 'seasonPoints', header: 'Points', render: row => <span className="font-data font-semibold text-accent">{row.seasonPoints ?? 0}</span> },
+    { key: 'resolved', header: 'Resolved', render: row => row.resolved ?? '—', className: 'font-data' },
+  ];
 
   return (
-    <div className="arena-page">
+    <DashboardLayout
+      title="Prediction Arena"
+      description="Skill-rated predictions with weekly seasons and calibration scoring."
+    >
       <Helmet>
-        <title>Prediction Arena — Skill-Rated Predictions | Esportsduniya</title>
+        <title>Prediction Arena | Esportsduniya</title>
       </Helmet>
-      <header className="arena-hero">
-        <h1>◈ Prediction Arena</h1>
-        <p>Weekly Oracle seasons · Rivalry rooms · Calibration score against crowd belief and AI reads</p>
-        {season?.weekId && (
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: 8 }}>
-            Season {season.weekId}
-          </p>
-        )}
-      </header>
 
-      <div className="arena-stats">
-        <div className="arena-stat">
-          <div className="arena-stat-value">{myStats?.calibrationScore ?? '—'}</div>
-          <div className="arena-stat-label">Your calibration</div>
-        </div>
-        <div className="arena-stat">
-          <div className="arena-stat-value">{myRank || '—'}</div>
-          <div className="arena-stat-label">Your rank</div>
-        </div>
-        <div className="arena-stat">
-          <div className="arena-stat-value">{myStats?.seasonPoints ?? 0}</div>
-          <div className="arena-stat-label">Season points</div>
-        </div>
-        <div className="arena-stat">
-          <div className="arena-stat-value">{user?.streak ?? 0}</div>
-          <div className="arena-stat-label">Login streak</div>
-        </div>
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label="Your calibration" value={myStats?.calibrationScore ?? '—'} />
+        <StatTile label="Your rank" value={myRank || '—'} />
+        <StatTile label="Season points" value={myStats?.seasonPoints ?? 0} />
+        <StatTile label="Season" value={season?.weekId ?? '—'} sub={user?.streak ? `${user.streak} day streak` : undefined} />
       </div>
 
       {!user?.username && (
-        <div className="home-missed-card" style={{ marginBottom: 'var(--space-6)' }}>
-          <strong>Open your Fan Passport to compete</strong>
-          <p style={{ margin: '8px 0 0', fontSize: '0.85rem' }}>
-            Lock Oracle predictions inside Match Command Centers to climb weekly seasons.
-          </p>
-          <button type="button" className="home-retry-btn" onClick={() => window.mountLoginScreen?.()}>
-            Sign In
-          </button>
+        <div className="mb-6 rounded-xl border border-accent/30 bg-accent/5 p-4 text-sm">
+          <strong className="text-foreground">Sign in to compete</strong>
+          <p className="mt-1 text-muted">Lock predictions on match pages to earn arena points.</p>
+          <Button className="mt-3" size="sm" onClick={() => document.dispatchEvent(new CustomEvent('esd:open-login'))}>
+            Sign in
+          </Button>
         </div>
       )}
 
-      <div className="arena-tabs">
-        <button type="button" className={`arena-tab ${tab === 'season' ? 'active' : ''}`} onClick={() => setTab('season')}>
-          Season board
-        </button>
-        <button type="button" className={`arena-tab ${tab === 'rivalry' ? 'active' : ''}`} onClick={() => setTab('rivalry')}>
-          Rivalry rooms
-        </button>
+      {loading ? (
+        <div className="space-y-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-11" />)}</div>
+      ) : error ? (
+        <p className="text-muted">{error}</p>
+      ) : (
+        <DataTable columns={columns} data={standings.map((s, i) => ({ ...s, id: s.username, rank: i + 1 }))} emptyMessage="No arena standings yet." />
+      )}
+
+      <div className="mt-8">
+        <Button variant="outline" asChild><Link to="/">Browse live matches</Link></Button>
       </div>
-
-      {loading && <div className="home-skeleton-card" style={{ height: 120 }} />}
-
-      {error && !loading && (
-        <div className="home-empty-state"><p>{error}</p></div>
-      )}
-
-      {tab === 'season' && !loading && !error && (
-        <div className="arena-table-wrap">
-          <table className="arena-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Player</th>
-                <th>Calibration</th>
-                <th>Points</th>
-                <th>Predictions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {standings.length === 0 ? (
-                <tr><td colSpan={5}>No predictors yet — be the first on a live match!</td></tr>
-              ) : standings.map((row, i) => (
-                <tr key={row.username} className={row.username === user?.username ? 'arena-row-you' : ''}>
-                  <td>{i + 1}</td>
-                  <td>{row.avatar} {row.username}</td>
-                  <td>{row.calibrationScore}</td>
-                  <td>{row.seasonPoints}</td>
-                  <td>{row.predictions}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === 'rivalry' && (
-        <>
-          <div className="arena-tabs">
-            {RIVALRIES.map(r => (
-              <button
-                key={r.id}
-                type="button"
-                className={`arena-tab ${rivalry?.id === r.id ? 'active' : ''}`}
-                onClick={() => setRivalry(r)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-          {rivalry && (
-            <div className="arena-table-wrap">
-              <table className="arena-table">
-                <thead>
-                  <tr><th>#</th><th>Player</th><th>Rivalry picks</th><th>Win rate</th></tr>
-                </thead>
-                <tbody>
-                  {rivalryBoard.length === 0 ? (
-                    <tr><td colSpan={4}>No rivalry predictions yet for {rivalry.label}</td></tr>
-                  ) : rivalryBoard.map((row, i) => (
-                    <tr key={row.username}>
-                      <td>{i + 1}</td>
-                      <td>{row.avatar} {row.username}</td>
-                      <td>{row.rivalryPicks}</td>
-                      <td>{row.winRate}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      <p style={{ marginTop: 'var(--space-8)', textAlign: 'center' }}>
-        <Link to="/">← Pick a live match and lock your Oracle prediction</Link>
-      </p>
-    </div>
+    </DashboardLayout>
   );
 }

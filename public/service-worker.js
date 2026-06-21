@@ -3,7 +3,7 @@
    Handles: offline caching + push notifications
    ============================================ */
 
-const CACHE_NAME = 'esd-pwa-v3';
+const CACHE_NAME = 'esd-pwa-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

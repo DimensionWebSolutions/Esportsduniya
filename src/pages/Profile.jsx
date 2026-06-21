@@ -1,395 +1,94 @@
 import { useState, useEffect } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
-
-const SPORT_ICONS = {
-  cricket: '🏏', football: '⚽', nba: '🏀', tennis: '🎾', f1: '🏎️', unknown: '🏅',
-};
-
-function PredictionCard({ pred }) {
-  const sportIcon = SPORT_ICONS[pred.sport] || '🏅';
-  const statusConfig = {
-    correct: { label: '✅ Correct', cls: 'pred-correct', pts: `+${pred.pointsResult} pts` },
-    incorrect: { label: '❌ Wrong', cls: 'pred-incorrect', pts: `−${pred.wager} pts` },
-    pending: { label: '⏳ Pending', cls: 'pred-pending', pts: `${pred.potentialWin} possible` },
-  };
-  const cfg = statusConfig[pred.status] || statusConfig.pending;
-
-  return (
-    <div className={`prediction-card ${cfg.cls}`}>
-      <div className="pred-sport-icon">{sportIcon}</div>
-      <div className="pred-body">
-        <div className="pred-match">{pred.matchLabel}</div>
-        <div className="pred-pick">
-          Picked: <strong>{pred.teamPickedName}</strong>
-          <span className="pred-odds">@ {pred.odds}x</span>
-        </div>
-        <div className="pred-meta">
-          Wagered {pred.wager} pts · {new Date(pred.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-        </div>
-      </div>
-      <div className="pred-result">
-        <span className={`pred-status-badge ${cfg.cls}`}>{cfg.label}</span>
-        <span className="pred-pts">{cfg.pts}</span>
-      </div>
-    </div>
-  );
-}
+import { Link } from 'react-router-dom';
+import { apiUrl } from '@/config/apiBase';
+import { useAuth } from '@/hooks/useAuth';
+import { DashboardLayout } from '@/layouts/PageLayouts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
+import { Button } from '@/ui/button';
+import { Input } from '@/ui/input';
+import { Badge } from '@/ui/badge';
+import { StatTile, Skeleton } from '@/ui/section';
+import { SportPill } from '@/ui/badge';
 
 export default function ProfilePage() {
+  const { user: authUser, token } = useAuth();
   const [user, setUser] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [preferences, setPreferences] = useState({});
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [reminders, setReminders] = useState([]);
   const [predData, setPredData] = useState(null);
-  const [predLoading, setPredLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem('user'));
-    if (storedUser?.username) {
-      fetchProfile(storedUser.username);
-      fetchPredictions(storedUser.username);
-    } else {
-      setError('Please log in to view your profile.');
-    }
-    setReminders(JSON.parse(localStorage.getItem('esd_reminders') || '[]'));
-  }, []);
+    if (!authUser?.username) { setLoading(false); return; }
+    Promise.all([
+      fetch(apiUrl(`/api/profile/${authUser.username}`)).then(r => r.json()),
+      fetch(apiUrl(`/api/predictions/${authUser.username}`)).then(r => r.ok ? r.json() : null),
+    ]).then(([profile, preds]) => {
+      setUser({ ...authUser, ...profile });
+      setPredData(preds);
+    }).finally(() => setLoading(false));
+  }, [authUser?.username]);
 
-  const fetchProfile = async (username) => {
-    try {
-      const response = await fetch(`${API_BASE}/api/profile/${username}`);
-      const data = await response.json();
-      if (response.ok) {
-        const stored = JSON.parse(localStorage.getItem('user') || '{}');
-        const merged = { ...data, fanPoints: stored.fanPoints ?? data.fanPoints ?? 0, badges: stored.badges ?? data.badges ?? [] };
-        setUser(merged);
-        setPreferences(data.preferences || {});
-      } else {
-        setError(data.error || 'Failed to fetch profile.');
-      }
-    } catch (err) {
-      setError('Network error or server unavailable.');
-    }
-  };
-
-  const fetchPredictions = async (username) => {
-    setPredLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/predictions/${username}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPredData(data);
-      }
-    } catch (err) {
-      console.warn('Could not load predictions:', err);
-    } finally {
-      setPredLoading(false);
-    }
-  };
-
-  const handlePreferenceChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setPreferences(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-  };
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setMessage(''); setError('');
-    if (!user?.username) { setError('User not logged in.'); return; }
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/api/profile/${user.username}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ preferences }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setUser(prev => ({ ...prev, ...data.user }));
-        setPreferences(data.user.preferences);
-        setEditing(false);
-        setMessage('Profile updated successfully!');
-      } else {
-        setError(data.error || 'Failed to update profile.');
-      }
-    } catch {
-      setError('Network error or server unavailable.');
-    }
-  };
-
-  const cancelReminder = (matchId) => {
-    const updated = reminders.filter(r => r.matchId !== matchId);
-    setReminders(updated);
-    localStorage.setItem('esd_reminders', JSON.stringify(updated));
-  };
-
-  if (!user && error) {
+  if (!authUser?.username) {
     return (
-      <div className="profile-container" style={{ textAlign: 'center', padding: '3rem' }}>
-        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
-        <p>{error}</p>
-        <button
-          onClick={() => {
-            const app = document.getElementById('app');
-            if (window.mountLoginScreen) window.mountLoginScreen(app);
-            else window.esportsLogout?.();
-          }}
-          style={{ marginTop: '1rem', padding: '10px 24px', borderRadius: '20px', background: 'var(--accent-cyber)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '1rem' }}
-        >
-          Open Fan Passport
-        </button>
-      </div>
+      <DashboardLayout title="Account">
+        <Card><CardContent className="py-12 text-center">
+          <p className="text-muted">Please sign in to view your profile.</p>
+          <Button className="mt-4" onClick={() => document.dispatchEvent(new CustomEvent('esd:open-login'))}>Sign in</Button>
+        </CardContent></Card>
+      </DashboardLayout>
     );
   }
 
-  if (!user) {
-    return <div className="profile-container" style={{ textAlign: 'center', padding: '3rem' }}>Loading profile...</div>;
-  }
+  if (loading) return <DashboardLayout title="Account"><Skeleton className="h-64 w-full" /></DashboardLayout>;
 
-  const fanPoints = user.fanPoints || 0;
-  const badges = user.badges || [];
-  const streak = user.streak || 0;
-  const stats = predData?.stats;
-  const predictions = predData?.predictions || [];
+  const preds = predData?.predictions || [];
 
   return (
-    <div className="profile-container">
-      {/* Fan Passport Header */}
-      <div className="profile-hero">
-        <div className="profile-avatar-big">{user.avatar || user.preferences?.avatar || '🦁'}</div>
-        <div className="profile-hero-info">
-          <div className="profile-passport-kicker">Fan Passport</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <h2 className="profile-username">{user.username}</h2>
-            {user.isPremium && <span style={{ background: 'linear-gradient(90deg,#f8c300,#ff8c00)', color: '#000', padding: '2px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700 }}>💎 PREMIUM</span>}
-            <button
-              onClick={() => { if (confirm('Log out?')) window.esportsLogout?.(); }}
-              style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: '16px', background: 'rgba(255,80,80,0.15)', border: '1px solid rgba(255,80,80,0.35)', color: '#ff6060', cursor: 'pointer', fontSize: '0.85rem' }}
-            >
-              Logout
-            </button>
-          </div>
-          <div className="profile-stats-row">
-            <div className="profile-stat">
-              <span className="profile-stat-val">🪙 {fanPoints.toLocaleString()}</span>
-              <span className="profile-stat-label">FanPoints</span>
-            </div>
-            <div className="profile-stat">
-              <span className="profile-stat-val">🔥 {streak}</span>
-              <span className="profile-stat-label">Day Streak</span>
-            </div>
-            <div className="profile-stat">
-              <span className="profile-stat-val">🏅 {badges.length}</span>
-              <span className="profile-stat-label">Badges</span>
-            </div>
-          </div>
-        </div>
+    <DashboardLayout title="Account" description={`@${user?.username}`}>
+      <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <StatTile label="FanPoints" value={(user?.fanPoints || 0).toLocaleString()} />
+        <StatTile label="Streak" value={`${user?.streak || 0} days`} />
+        <StatTile label="Badges" value={user?.badges?.length || 0} />
       </div>
 
-      <div className="profile-section passport-summary">
-        <h3 className="profile-section-title">◎ Public Fan Identity</h3>
-        <div className="passport-grid">
-          <div>
-            <span>Rivalry identity</span>
-            <strong>{preferences.favoriteSports?.includes('cricket') ? 'Cricket pressure player' : 'Multi-sport scout'}</strong>
+      <Card className="mb-8">
+        <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <span className="text-4xl">{user?.avatar || '👤'}</span>
+            <div>
+              <p className="font-display text-xl font-semibold">{user?.username}</p>
+              {user?.isPremium && <Badge variant="upcoming">Pro member</Badge>}
+            </div>
           </div>
-          <div>
-            <span>Primary arena</span>
-            <strong>{preferences.favoriteSports?.[0] || 'Not selected'}</strong>
-          </div>
-          <div>
-            <span>Reputation source</span>
-            <strong>{stats?.total ? 'Oracle accuracy' : 'Participation streaks'}</strong>
-          </div>
-        </div>
-        <button
-          className="profile-share-btn"
-          type="button"
-          onClick={() => navigator.clipboard?.writeText(window.location.href)}
-        >
-          Copy Passport Link
-        </button>
-      </div>
+          {!user?.isPremium && (
+            <Button asChild variant="outline"><Link to="/pricing">Upgrade to Pro</Link></Button>
+          )}
+        </CardContent>
+      </Card>
 
-      {message && <div className="profile-message success">{message}</div>}
-      {error && <div className="profile-message error">{error}</div>}
-
-      {/* ── Oracle Prediction Accuracy Card ── */}
-      <div className="profile-section">
-        <h3 className="profile-section-title">◈ Oracle Accuracy</h3>
-        {predLoading ? (
-          <div className="pred-stats-loading">Analysing your Oracle record...</div>
-        ) : stats && stats.total > 0 ? (
-          <>
-            <div className="pred-accuracy-card">
-              {/* Accuracy ring */}
-              <div className="accuracy-ring-wrap">
-                <svg viewBox="0 0 80 80" className="accuracy-ring">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8"/>
-                  <circle
-                    cx="40" cy="40" r="34"
-                    fill="none"
-                    stroke={stats.accuracyPct >= 60 ? 'var(--accent-neon)' : stats.accuracyPct >= 40 ? 'var(--accent-gold)' : 'var(--accent-fire)'}
-                    strokeWidth="8"
-                    strokeDasharray={`${(stats.accuracyPct / 100) * 213.6} 213.6`}
-                    strokeLinecap="round"
-                    transform="rotate(-90 40 40)"
-                  />
-                  <text x="40" y="45" textAnchor="middle" fontSize="16" fontWeight="700" fill="white">{stats.accuracyPct}%</text>
-                </svg>
-                <div className="accuracy-ring-label">Accuracy</div>
+      <Card>
+        <CardHeader><CardTitle>Prediction history</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {preds.length === 0 ? (
+            <p className="text-sm text-muted">No predictions yet. <Link to="/" className="text-accent">Browse matches</Link></p>
+          ) : preds.slice(0, 20).map(pred => (
+            <div key={pred.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">{pred.matchLabel}</p>
+                <p className="text-xs text-muted">Picked {pred.teamPickedName} · {pred.wager} pts</p>
               </div>
-
-              {/* Stats grid */}
-              <div className="pred-stats-grid">
-                <div className="pred-stat-item">
-                  <span className="pred-stat-val text-neon">{stats.total}</span>
-                  <span className="pred-stat-label">Total</span>
-                </div>
-                <div className="pred-stat-item">
-                  <span className="pred-stat-val" style={{color:'var(--accent-neon)'}}>{stats.correct}</span>
-                  <span className="pred-stat-label">Correct</span>
-                </div>
-                <div className="pred-stat-item">
-                  <span className="pred-stat-val" style={{color:'var(--accent-fire)'}}>{stats.incorrect}</span>
-                  <span className="pred-stat-label">Wrong</span>
-                </div>
-                <div className="pred-stat-item">
-                  <span className="pred-stat-val" style={{color:'var(--accent-gold)'}}>{stats.pending}</span>
-                  <span className="pred-stat-label">Pending</span>
-                </div>
-                <div className="pred-stat-item">
-                  <span className="pred-stat-val" style={{color: stats.netPoints >= 0 ? 'var(--accent-neon)' : 'var(--accent-fire)'}}>
-                    {stats.netPoints >= 0 ? '+' : ''}{stats.netPoints}
-                  </span>
-                  <span className="pred-stat-label">Net pts</span>
-                </div>
-                <div className="pred-stat-item">
-                  <span className="pred-stat-val">🔥{stats.streak}</span>
-                  <span className="pred-stat-label">Win streak</span>
-                </div>
+              <div className="flex items-center gap-2">
+                <SportPill sport={pred.sport} />
+                <Badge variant={pred.status === 'correct' ? 'live' : pred.status === 'incorrect' ? 'finished' : 'upcoming'}>
+                  {pred.status}
+                </Badge>
               </div>
             </div>
-
-            {/* Prediction history list */}
-            {predictions.length > 0 && (
-              <div className="pred-history">
-                <div className="pred-history-title">Recent Predictions</div>
-                <div className="pred-list">
-                  {predictions.slice(0, 10).map(pred => (
-                    <PredictionCard key={pred.id} pred={pred} />
-                  ))}
-                </div>
-                {predictions.length > 10 && (
-                  <div className="pred-more">+{predictions.length - 10} more predictions</div>
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="pred-empty">
-            <div style={{fontSize:'2.5rem', marginBottom:'12px'}}>🔮</div>
-            <p>No predictions yet. Enter a Match Command Center and use <strong>The Oracle</strong> to start building your public record.</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Badges ── */}
-      {badges.length > 0 && (
-        <div className="profile-section">
-          <h3 className="profile-section-title">🏅 Passport Badges</h3>
-          <div className="badges-grid">
-            {badges.map((badge, i) => {
-              const name = typeof badge === 'string' ? badge : badge.name;
-              return (
-                <div key={i} className="badge-item">
-                  <span className="badge-emoji">{name.split(' ')[0]}</span>
-                  <span className="badge-name">{name.split(' ').slice(1).join(' ')}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Preferences ── */}
-      <div className="profile-section">
-        <h3 className="profile-section-title">⚙️ Sports Signal Preferences</h3>
-        {!editing ? (
-          <div>
-            <p><b>Theme:</b> {preferences.theme || 'dark'}</p>
-            <p><b>Notifications:</b> {preferences.notifications ? 'Enabled' : 'Disabled'}</p>
-            <p><b>Favourite Sports:</b> {preferences.favoriteSports?.length > 0 ? preferences.favoriteSports.join(', ') : 'None selected'}</p>
-            <button className="profile-edit-btn" onClick={() => setEditing(true)}>Edit Preferences</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSave} className="profile-form">
-            <label>
-              Theme:
-              <select name="theme" value={preferences.theme || 'dark'} onChange={handlePreferenceChange}>
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </select>
-            </label>
-            <label>
-              Notifications:
-              <input type="checkbox" name="notifications" checked={preferences.notifications || false} onChange={handlePreferenceChange} />
-            </label>
-            <label>
-              Favourite Sports (comma-separated):
-              <input
-                type="text"
-                name="favoriteSports"
-                value={(preferences.favoriteSports || []).join(', ')}
-                onChange={(e) => setPreferences(prev => ({ ...prev, favoriteSports: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))}
-              />
-            </label>
-            <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-              <button type="submit" className="profile-save-btn">Save Changes</button>
-              <button type="button" className="profile-cancel-btn" onClick={() => setEditing(false)}>Cancel</button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      {/* ── Match Reminders ── */}
-      <div className="profile-section">
-        <h3 className="profile-section-title">⏰ Match Room Reminders</h3>
-        {reminders.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>No reminders set. Click "Remind Me" on any upcoming match.</p>
-        ) : (
-          <div className="reminders-list">
-            {reminders.map((r) => (
-              <div key={r.matchId} className="reminder-item">
-                <div className="reminder-info">
-                  <span className="reminder-match">{r.teamA} vs {r.teamB}</span>
-                  <span className="reminder-meta">{r.sport} · {r.kickoff || 'Upcoming'}</span>
-                </div>
-                <button className="reminder-cancel" onClick={() => cancelReminder(r.matchId)}>✕</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Match History ── */}
-      <div className="profile-section">
-        <h3 className="profile-section-title">▤ Fan Activity History</h3>
-        {user.matchHistory?.length > 0 ? (
-          <ul className="profile-list">
-            {user.matchHistory.map((match, i) => (
-              <li key={i}>{match.details} — Prediction: {match.prediction}, Outcome: {match.outcome}</li>
-            ))}
-          </ul>
-        ) : (
-          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>No match predictions yet.</p>
-        )}
-      </div>
-    </div>
+          ))}
+        </CardContent>
+      </Card>
+      {message && <p className="mt-4 text-sm text-accent">{message}</p>}
+    </DashboardLayout>
   );
 }
