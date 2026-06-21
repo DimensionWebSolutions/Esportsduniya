@@ -18,6 +18,10 @@ export function MatchNarrative({ match, tone = 'casual' }) {
         body: JSON.stringify({ matchContext: match, tone }),
       });
       const data = await res.json();
+      if (data.unavailable || data.error) {
+        setText(data.error || 'AI commentary is temporarily unavailable.');
+        return;
+      }
       setText(data.narrative || data.text || 'Analysis unavailable.');
     } catch {
       setText('Could not load AI narrative.');

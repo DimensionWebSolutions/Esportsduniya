@@ -110,11 +110,10 @@ export default function HomePage() {
         )}
       </div>
 
-      {data?.meta?.error && (
+      {data?.meta?.error && !/gemini|429|quota/i.test(data.meta.error) && (
         <div className="mb-6 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
-          {activeSport === 'football' && 'Football data unavailable from API-Football. '}
-          {data.meta.error}
-          {data.meta.stale && ' Showing last known or AI-estimated scores.'}
+          Some score feeds are unavailable from API-Sports: {data.meta.error}
+          {data.meta.stale && ' Showing cached scores.'}
         </div>
       )}
 

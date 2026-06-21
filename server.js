@@ -2042,15 +2042,6 @@ async function getApisportsSportLive(sportId) {
     const stale = getStaleSnapshot(sportId);
     if (stale) return { ...stale, error: err.message };
 
-    if (hasGemini) {
-      console.warn(`   ↪ Trying Gemini fallback for ${sportId}...`);
-      const ai = await getAISportLive(sportId);
-      if (ai.matches.length) {
-        return { ...ai, stale: true, error: err.message };
-      }
-      return { ...ai, error: ai.error || err.message };
-    }
-
     return {
       matches: [],
       source: 'unavailable',
@@ -2222,7 +2213,10 @@ IMPORTANT: Base your narrative ONLY on real data you found via internet search. 
     }
   } catch (err) {
     console.error('   ❌ AI narrative:', err.message);
-    res.status(502).json({ error: err.message, fallback: true });
+    const friendly = /429|quota/i.test(err.message)
+      ? 'AI commentary is temporarily unavailable (quota reached). Live scores are unaffected.'
+      : 'AI commentary is temporarily unavailable.';
+    res.status(503).json({ error: friendly, fallback: true, unavailable: true });
   }
 });
 
@@ -3025,7 +3019,13 @@ async function getAISportLive(sport) {
   }
 }
 
-// ── Unified Live Scores (real APIs first, snapshot on failure) ──
+function sanitizeScoreFeedError(error) {
+  if (!error) return null;
+  if (/gemini|429|quota|generativelanguage|ai-search/i.test(String(error))) return null;
+  return error;
+}
+
+// ── Unified Live Scores (API-Sports + CricAPI only — never Gemini for scores) ──
 app.get('/api/sports/live/:sport', async (req, res) => {
   const sport = req.params.sport;
   const validSports = ['all', ...LIVE_SPORT_IDS];
@@ -3039,18 +3039,23 @@ app.get('/api/sports/live/:sport', async (req, res) => {
       const allMatches = results.flatMap(r => r.matches);
       const activeSources = [...new Set(results.filter(p => p.matches.length > 0).map(p => p.source))];
       const fetchedAt = results.map(p => p.fetchedAt).filter(Boolean).sort().reverse()[0] || null;
-      const errors = results.filter(r => r.error).map(r => r.error);
+      const apiErrors = results
+        .map(r => sanitizeScoreFeedError(r.error))
+        .filter(Boolean);
 
       return res.json({
         matches: allMatches,
         source: activeSources.length ? activeSources.join('+') : 'unavailable',
         fetchedAt,
         stale: results.some(p => p.stale),
-        error: errors.length ? errors[0] : null,
+        error: allMatches.length === 0 ? (apiErrors[0] || null) : null,
       });
     }
 
     const result = await getRealSportLive(sport);
+    if (result.error) {
+      result.error = sanitizeScoreFeedError(result.error);
+    }
     if (result.source === 'unavailable' && !result.matches.length) {
       return res.status(503).json(result);
     }
@@ -3250,18 +3255,17 @@ app.get('/api/sports/standings/:league', async (req, res) => {
         const apiRows = await fetchFootballStandingsFromAPI();
         if (apiRows?.length) {
           standingsCache[league] = { data: apiRows, timestamp: Date.now() };
-          console.log(`   ✅ Football standings from API-Football (${apiRows.length} teams)`);
+          console.log(`   ✅ Football standings from API-Sports (${apiRows.length} teams)`);
           return res.json(apiRows);
         }
       } catch (apiErr) {
-        console.warn(`   ⚠️ Football standings API failed (${apiErr.message}), trying Gemini...`);
+        console.warn(`   ⚠️ Football standings API failed (${apiErr.message})`);
       }
     }
 
-    const data = await fetchStandingsViaGemini(league);
-    standingsCache[league] = { data, timestamp: Date.now() };
-    console.log(`   ✅ Standings fetched and cached for ${league}`);
-    return res.json(data);
+    // Standings use API-Sports only — Gemini is not used for data feeds
+    console.warn(`   ℹ️ Standings for ${league}: no API-Sports table configured yet`);
+    return res.json([]);
   } catch (err) {
     console.warn(`   ⚠️ Standings fetch failed for ${league}. Reason:`, err.message);
     return res.status(503).json({ error: 'Standings unavailable', unavailable: true, league });

@@ -15,9 +15,9 @@ export async function fetchStandings(league) {
    ESPORTSDUNIYA — API Service Layer
    ============================================
    Fetches from the backend proxy (/api/*).
-   PRIMARY: CricAPI (cricket) + API-Football (football)
+   PRIMARY: API-Sports (all sports) + CricAPI (cricket)
    FALLBACK: Last-known-good server snapshot
-   AI: Only for sports without dedicated APIs (NBA, tennis, F1)
+   AI (Gemini): Optional — match commentary/momentum only, NOT live scores
    ============================================ */
 
 import { getWebSocketUrl } from './webSocketUrl.js';
@@ -243,10 +243,15 @@ async function fetchInternal(endpoint) {
     return data.response || data.matches || [];
 }
 
+function sanitizeScoreError(err) {
+    if (!err) return null;
+    if (/gemini|429|quota|generativelanguage|ai-search/i.test(String(err))) return null;
+    return err;
+}
+
 /**
  * Fetch live matches via unified backend endpoint.
- * Cricket & football: real APIs first, cached snapshot on failure.
- * NBA/Tennis/F1: AI only when configured.
+ * All sports: API-Sports (APISPORTS_KEY) + CricAPI for cricket. Gemini is NOT used for scores.
  */
 export async function fetchLiveMatches(sport = 'all', options = {}) {
     if (apiAvailable === null) {
@@ -272,12 +277,13 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
         source: data.source || null,
         fetchedAt: data.fetchedAt || null,
         stale: Boolean(data.stale),
-        error: data.error || (!res.ok && !matches.length ? (data.error || `HTTP ${res.status}`) : null),
+        error: sanitizeScoreError(data.error || (!res.ok && !matches.length ? (data.error || `HTTP ${res.status}`) : null)),
         matchCount: matches.length,
     };
 
     if (!res.ok && matches.length === 0) {
-        throw new Error(data.error || 'No live scores available from configured data sources.');
+        const msg = sanitizeScoreError(data.error) || 'No live scores available. Check APISPORTS_KEY on the server.';
+        throw new Error(msg);
     }
 
     return matches.map(m => ({
