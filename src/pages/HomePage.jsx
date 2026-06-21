@@ -120,7 +120,7 @@ export default function HomePage() {
         description={`${prioritized.length} matches`}
       >
         {isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
             {Array.from({ length: 6 }).map((_, i) => <MatchCardSkeleton key={i} />)}
           </div>
         ) : error ? (
@@ -133,7 +133,7 @@ export default function HomePage() {
             No matches right now. Check back soon.
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
             {prioritized.map(match => (
               <MatchCard
                 key={match.id}
