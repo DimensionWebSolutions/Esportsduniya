@@ -96,12 +96,25 @@ export default function HomePage() {
         </Button>
       </div>
 
-      <div className="mb-6 flex items-center gap-2 text-sm text-muted">
-        <span className="font-data text-foreground">{liveCount}</span> live now
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted">
+        <span>
+          <span className="font-data text-foreground">{liveCount}</span> live now
+        </span>
         {data?.meta?.fetchedAt && (
           <span>· Updated {new Date(data.meta.fetchedAt).toLocaleTimeString()}</span>
         )}
+        {data?.meta?.source && (
+          <span className="text-xs">· {data.meta.source}{data.meta.stale ? ' (cached)' : ''}</span>
+        )}
       </div>
+
+      {data?.meta?.error && (
+        <div className="mb-6 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
+          {activeSport === 'football' && 'Football data unavailable from API-Football. '}
+          {data.meta.error}
+          {data.meta.stale && ' Showing last known or AI-estimated scores.'}
+        </div>
+      )}
 
       {trending.length > 0 && (
         <Section title="Trending" className="mb-8">
@@ -130,7 +143,16 @@ export default function HomePage() {
           </div>
         ) : prioritized.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted">
-            No matches right now. Check back soon.
+            <p>No {activeSport === 'all' ? '' : `${activeSport} `}matches right now.</p>
+            {activeSport === 'football' && (
+              <p className="mx-auto mt-3 max-w-md text-sm">
+                Football needs a valid <code className="text-foreground">APISPORTS_KEY</code> on the server.
+                Get a free key at{' '}
+                <a href="https://www.api-football.com/" className="text-accent hover:underline" target="_blank" rel="noreferrer">
+                  api-football.com
+                </a>.
+              </p>
+            )}
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">

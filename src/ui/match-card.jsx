@@ -27,6 +27,7 @@ export function MatchCard({ match, onClick, className }) {
 
   return (
     <Card
+      data-match-id={match.id}
       className={cn(
         'group min-w-0 overflow-hidden cursor-pointer border-border bg-surface-1 transition-all hover:border-accent/40 hover:bg-surface-2',
         sportBg(match.sport),

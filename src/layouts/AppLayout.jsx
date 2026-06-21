@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Radio,
   Trophy,
@@ -22,6 +23,7 @@ import { Button } from '@/ui/button';
 import { CommandSearch } from '@/ui/command-search';
 import { AuthModal } from '@/ui/auth-modal';
 import MomentEngine from '@/components/MomentEngine.jsx';
+import { initLiveScoreManager } from '@/services/LiveScoreManager.js';
 import { hashToPath, pageIdToPath } from '@/utils/routes';
 
 const NAV_ITEMS = [
@@ -115,9 +117,19 @@ function TopBar({ onSearch, onLogin, user, onLogout }) {
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { user, logout } = useAuth();
   const [searchOpen, setSearchOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+
+  useEffect(() => {
+    initLiveScoreManager();
+    const refreshScores = () => {
+      queryClient.invalidateQueries({ queryKey: ['live-scores'] });
+    };
+    document.addEventListener('lsm:score_update', refreshScores);
+    return () => document.removeEventListener('lsm:score_update', refreshScores);
+  }, [queryClient]);
 
   useEffect(() => {
     window.esportsNavigate = (pageId) => navigate(pageIdToPath(pageId));
