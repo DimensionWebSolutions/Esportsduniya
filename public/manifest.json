@@ -24,23 +24,23 @@
       "name": "Live Scores",
       "short_name": "Live",
       "description": "View live scores across all sports",
-      "url": "/#dashboard",
+      "url": "/",
       "icons": [{ "src": "/favicon.svg", "sizes": "any" }]
     },
     {
       "name": "Cricket Live",
       "short_name": "Cricket",
-      "url": "/#cricket"
+      "url": "/sport/cricket"
     },
     {
       "name": "Football Live",
       "short_name": "Football",
-      "url": "/#football"
+      "url": "/sport/football"
     },
     {
       "name": "NBA Live",
       "short_name": "NBA",
-      "url": "/#nba"
+      "url": "/sport/nba"
     }
   ]
 }

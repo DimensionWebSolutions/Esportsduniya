@@ -31,7 +31,7 @@ export function createDynamicIsland() {
   island.setAttribute('aria-label', 'Live scores ticker');
 
   island.innerHTML = `
-    <a class="island-logo" href="#dashboard" aria-label="Esportsduniya Home">
+    <a class="island-logo" href="/" aria-label="Esportsduniya Home">
       <span class="bolt" aria-hidden="true">⚡</span>
       <span>Esportsduniya</span>
     </a>

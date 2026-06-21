@@ -121,7 +121,7 @@ function checkReminders(reminders) {
         body: `${reminder.teamA} vs ${reminder.teamB} kicks off in ~15 minutes`,
         icon: '/favicon.svg',
         tag: `reminder-${reminder.matchId}`,
-        data: { url: `/#match/${reminder.matchId}` },
+        data: { url: `/match/${reminder.matchId}` },
         requireInteraction: true,
       });
     }

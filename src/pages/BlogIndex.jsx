@@ -75,11 +75,7 @@ function ArticleDetail({ slug, onBack }) {
       <div className="blog-cta-box" style={{ marginTop: '2.5rem' }}>
         <h3>Follow Live Scores on Esportsduniya</h3>
         <p>Get real-time scores, AI predictions, and fan insights — all in one place</p>
-        <a
-          className="blog-cta-btn"
-          href="https://www.esportsduniya.in/#dashboard"
-          onClick={e => { e.preventDefault(); window.esportsNavigate?.('dashboard'); }}
-        >
+        <a className="blog-cta-btn" href="/">
           Watch Live Scores →
         </a>
       </div>

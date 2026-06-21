@@ -3882,7 +3882,7 @@ app.get('/api/og/:matchId', optionalAuth, (req, res) => {
     ? `${teamA} ${score} | Live ${league || sport} scores, AI commentary &amp; predictions — Esportsduniya.in`
     : `Watch live ${league || sport || 'sports'} scores, get AI commentary &amp; make Oracle predictions on Esportsduniya.in`;
 
-  const matchUrl = `https://www.esportsduniya.in/#match/${matchId}`;
+  const matchUrl = `https://esportsduniya.in/match/${matchId}`;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -4219,11 +4219,11 @@ REQUIREMENTS:
 4. Include real stats, match details, historical context, and expert-style analysis
 5. Indian audience context: mention IST timezone, India viewership, Indian players
 6. Add these internal links using the exact anchor text shown:
-   - "live cricket scores" → https://www.esportsduniya.in/#cricket
-   - "football live scores" → https://www.esportsduniya.in/#football
-   - "NBA scores today" → https://www.esportsduniya.in/#nba
-   - "live sports scores" → https://www.esportsduniya.in/#dashboard
-   - "AI sports predictions" → https://www.esportsduniya.in/#crowdpulse
+   - "live cricket scores" → https://esportsduniya.in/sport/cricket
+   - "football live scores" → https://esportsduniya.in/sport/football
+   - "NBA scores today" → https://esportsduniya.in/sport/nba
+   - "live sports scores" → https://esportsduniya.in/
+   - "AI sports predictions" → https://esportsduniya.in/crowdpulse
 7. End with a clear CTA paragraph linking to the relevant live scores section on the site
 8. Only use these HTML tags: <h2> <h3> <p> <ul> <li> <strong> <em> <a href="..." target="_blank" rel="noopener noreferrer">
 
@@ -4501,9 +4501,9 @@ app.get('/blog', async (req, res) => {
 <header class="blog-header">
   <a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a>
   <nav class="blog-header-nav">
-    <a href="https://www.esportsduniya.in/#cricket">Cricket</a>
-    <a href="https://www.esportsduniya.in/#football">Football</a>
-    <a href="https://www.esportsduniya.in/#dashboard">Live Scores</a>
+    <a href="https://esportsduniya.in/sport/cricket">Cricket</a>
+    <a href="https://esportsduniya.in/sport/football">Football</a>
+    <a href="https://esportsduniya.in/">Live Scores</a>
   </nav>
 </header>
 <main>
@@ -4602,9 +4602,9 @@ app.get('/blog/:slug', async (req, res) => {
 <header class="blog-header">
   <a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a>
   <nav class="blog-header-nav">
-    <a href="https://www.esportsduniya.in/#cricket">Cricket</a>
-    <a href="https://www.esportsduniya.in/#football">Football</a>
-    <a href="https://www.esportsduniya.in/#dashboard">Live Scores</a>
+    <a href="https://esportsduniya.in/sport/cricket">Cricket</a>
+    <a href="https://esportsduniya.in/sport/football">Football</a>
+    <a href="https://esportsduniya.in/">Live Scores</a>
     <a href="/blog">Blog</a>
   </nav>
 </header>
@@ -4630,7 +4630,7 @@ app.get('/blog/:slug', async (req, res) => {
       <div class="blog-cta-box">
         <h3>Follow Live Scores on Esportsduniya</h3>
         <p>Get real-time scores, AI predictions, and fan insights — all in one place</p>
-        <a href="https://www.esportsduniya.in/#dashboard" target="_blank" rel="noopener noreferrer">Watch Live Scores →</a>
+        <a href="https://esportsduniya.in/" target="_blank" rel="noopener noreferrer">Watch Live Scores →</a>
       </div>
       ${keywordsHtml ? `<div class="blog-keywords">${keywordsHtml}</div>` : ''}
     </article>

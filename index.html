@@ -3,6 +3,32 @@
 
 <head>
   <script>
+    (function () {
+      var hash = location.hash;
+      if (!hash || hash.length <= 1) return;
+      var raw = hash.replace(/^#\/?/, '').trim();
+      var sports = { cricket: 1, football: 1, nba: 1, tennis: 1, f1: 1 };
+      var pages = {
+        dashboard: '/',
+        standings: '/standings',
+        leaderboard: '/leaderboard',
+        arena: '/arena',
+        timemachine: '/timemachine',
+        crowdpulse: '/crowdpulse',
+        fifa: '/fifa',
+        profile: '/profile',
+        blog: '/blog',
+        analytics: '/analytics',
+        admin: '/admin',
+      };
+      var path = '/';
+      if (raw.indexOf('match/') === 0) path = '/' + raw;
+      else if (sports[raw]) path = '/sport/' + raw;
+      else if (pages[raw]) path = pages[raw];
+      history.replaceState(null, '', path);
+    })();
+  </script>
+  <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/service-worker.js')

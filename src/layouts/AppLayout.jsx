@@ -22,7 +22,7 @@ import { Button } from '@/ui/button';
 import { CommandSearch } from '@/ui/command-search';
 import { AuthModal } from '@/ui/auth-modal';
 import MomentEngine from '@/components/MomentEngine.jsx';
-import { hashToPath } from '@/utils/routes';
+import { hashToPath, pageIdToPath } from '@/utils/routes';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Live', icon: Radio, end: true },
@@ -120,19 +120,18 @@ export default function AppLayout() {
   const [authOpen, setAuthOpen] = useState(false);
 
   useEffect(() => {
-    window.esportsNavigate = (pageId) => {
-      const paths = { dashboard: '/', arena: '/arena', profile: '/profile', crowdpulse: '/crowdpulse' };
-      navigate(paths[pageId] || '/');
-    };
+    window.esportsNavigate = (pageId) => navigate(pageIdToPath(pageId));
     window.esportsNavigatePath = (path) => navigate(path);
     window.mountLoginScreen = () => setAuthOpen(true);
   }, [navigate]);
 
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash?.length > 1) {
-      const path = hashToPath(hash);
-      if (path !== location.pathname) navigate(path, { replace: true });
+    if (!hash || hash.length <= 1) return;
+    const path = hashToPath(hash);
+    window.history.replaceState(null, '', path);
+    if (path !== location.pathname) {
+      navigate(path, { replace: true });
     }
   }, [navigate, location.pathname]);
 
