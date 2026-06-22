@@ -17,20 +17,21 @@ export default function StandingsPage() {
   });
 
   const rows = (data || []).map((row, i) => ({ ...row, id: row.team || i, rank: i + 1 }));
+  const isF1 = league === 'f1';
 
   const columns = [
     { key: 'rank', header: '#', render: row => row.rank, className: 'w-12 font-data' },
-    { key: 'team', header: 'Team', render: row => <span className="font-medium">{row.team}</span> },
+    { key: 'team', header: isF1 ? 'Driver' : 'Team', render: row => <span className="font-medium">{row.team}</span> },
     { key: 'wins', header: 'W', render: row => row.wins ?? '–', className: 'font-data text-center' },
-    { key: 'losses', header: 'L', render: row => row.losses ?? '–', className: 'font-data text-center' },
-    { key: 'draws', header: 'D', render: row => row.draws ?? '–', className: 'font-data text-center' },
+    { key: 'losses', header: 'L', render: row => isF1 ? '–' : (row.losses ?? '–'), className: 'font-data text-center' },
+    { key: 'draws', header: 'D', render: row => isF1 ? '–' : (row.draws ?? '–'), className: 'font-data text-center' },
     { key: 'points', header: 'Pts', render: row => <span className="font-data font-semibold">{row.points ?? '–'}</span>, className: 'text-center' },
   ];
 
   return (
     <DashboardLayout
       title="Standings"
-      description="League tables and championship rankings across all sports."
+      description="League tables for football (EPL), F1 drivers, and NBA."
     >
       <Tabs value={league} onValueChange={setLeague}>
         <TabsList className="mb-6 flex-wrap">
@@ -45,7 +46,7 @@ export default function StandingsPage() {
             ) : error ? (
               <p className="text-muted">Standings unavailable. Try again later.</p>
             ) : (
-              <DataTable columns={columns} data={rows} emptyMessage="No standings data available." />
+              <DataTable columns={columns} data={rows} emptyMessage="No standings data available for this league." />
             )}
           </TabsContent>
         ))}

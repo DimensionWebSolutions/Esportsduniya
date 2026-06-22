@@ -1,90 +1,119 @@
-# Deployment Guide — Cloudflare Pages + Railway
+# Deployment Guide — Cloudflare Pages + Render
 
 ## Overview
 
-| Layer     | Service           | URL pattern                          |
-|-----------|-------------------|--------------------------------------|
-| Frontend  | Cloudflare Pages  | `https://your-app.pages.dev`         |
-| Backend   | Railway           | `https://your-app.up.railway.app`    |
-| WebSocket | Railway (same)    | `wss://your-app.up.railway.app`      |
+| Layer     | Service              | URL pattern                              |
+|-----------|----------------------|------------------------------------------|
+| Frontend  | Cloudflare Pages     | `https://esportsduniya.in`               |
+| Backend   | Render               | `https://esportsduniya.onrender.com`     |
+| WebSocket | Render (same service)| `wss://esportsduniya.onrender.com`       |
 
 ---
 
-## 1. Deploy Backend to Railway
+## 1. Deploy Backend to Render
 
 ### First time setup
-1. Go to [railway.app](https://railway.app) and sign in with GitHub
-2. Click **New Project → Deploy from GitHub repo**
-3. Select this repository
-4. Railway auto-detects Node.js and uses `railway.toml` for config
 
-### Set environment variables
-In Railway dashboard → your service → **Variables**, add:
+1. Go to [render.com](https://render.com) and sign in with GitHub
+2. **New → Web Service** → connect this repository
+3. Build command: `npm install`
+4. Start command: `node server.js`
+5. Instance type: Free or Starter (free tier sleeps after inactivity)
+
+### Required environment variables
+
+In Render → your service → **Environment**:
 
 ```
+# Live scores
+FOOTBALL_DATA_KEY=your_key_from_football-data.org
+CRICAPI_KEY=your_cricapi_key
+THESPORTSDB_API_KEY=123
+
+# Persistence (strongly recommended — without this, news/users reset on restart)
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/esportsduniya?retryWrites=true&w=majority
+
+# Sports news (RSS — no key required; optional boost)
+NEWSAPI_KEY=your_newsapi_key
+
+# AI features (optional)
 GEMINI_API_KEY=your_gemini_key
-RAPIDAPI_KEY=your_rapidapi_key
-OPENAI_API_KEY=your_openai_key   # optional
-PORT=3001                         # Railway overrides this automatically
+OPENAI_API_KEY=your_openai_key
+ENABLE_AI_BLOG=false
+
+# Auth & ops
+JWT_SECRET=long_random_secret
+PORT=3001
 ```
 
-### Verify
-Once deployed, visit:
+### Verify after deploy
+
+```bash
+curl https://esportsduniya.onrender.com/api/health
+curl https://esportsduniya.onrender.com/api/validate
+curl "https://esportsduniya.onrender.com/api/blog?limit=5"
+curl https://esportsduniya.onrender.com/api/sports/live/all
 ```
-https://your-app.up.railway.app/api/health
-```
-Should return `{"status":"ok",...}`
+
+Expected health fields:
+
+- `football`: configured
+- `cricapi`: configured
+- `thesportsdb`: configured
+- `database`: mongodb (not `in-memory`)
 
 ---
 
 ## 2. Deploy Frontend to Cloudflare Pages
 
-### Connect repo
-1. Go to [pages.cloudflare.com](https://pages.cloudflare.com)
-2. Click **Create a project → Connect to Git**
-3. Select this repository
-
 ### Build settings
-| Setting           | Value         |
-|-------------------|---------------|
-| Framework preset  | Vite          |
+
+| Setting           | Value           |
+|-------------------|-----------------|
+| Framework preset  | Vite            |
 | Build command     | `npm run build` |
-| Build output dir  | `dist`        |
+| Build output dir  | `dist`          |
 
-### Environment variables
-In Cloudflare Pages → your project → **Settings → Environment variables**, add for **Production**:
+### Production environment variables
 
 ```
-VITE_API_URL=https://your-app.up.railway.app
-VITE_WS_URL=wss://your-app.up.railway.app
+VITE_API_URL=https://esportsduniya.onrender.com
+VITE_WS_URL=wss://esportsduniya.onrender.com
+VITE_FOOTBALL_API_KEY=your_football-data_key
 ```
 
-> Replace `your-app` with your actual Railway service subdomain.
+> `public/_redirects` also proxies `/api/*` and `/blog/*` to Render when `VITE_API_URL` is unset, but setting `VITE_API_URL` explicitly is recommended.
 
 ### Deploy
-Push to `main` — Cloudflare Pages builds and deploys automatically.
+
+Push to `main` — Cloudflare Pages builds automatically.
 
 ---
 
-## 3. Custom Domain (optional)
+## 3. Custom domain
 
-- **Cloudflare Pages**: Settings → Custom domains → add your domain
-- **Railway**: Settings → Networking → Custom domain (add `api.yourdomain.com`)
-  - Then update `VITE_API_URL` and `VITE_WS_URL` to use your custom API domain
+- **Cloudflare Pages**: Settings → Custom domains → `esportsduniya.in`
+- **Render**: Optional custom domain for API (e.g. `api.esportsduniya.in`) — update `VITE_API_URL` / `_redirects` if used
 
 ---
 
-## Local Development
+## Local development
 
-Nothing changes — `npm run dev:full` still works exactly as before.
+```bash
+npm install
+cp .env.example .env   # fill in keys
+npm run dev:full
+```
+
 - Frontend: http://localhost:5173
-- Backend + WebSocket: http://localhost:3001 / ws://localhost:3001
+- Backend: http://localhost:3001
 
 ---
 
 ## Notes
 
-- **Users are stored in-memory** — they reset on every Railway redeploy.
-  To persist users, add MongoDB Atlas (free) or Supabase and update the user store in `server.js`.
-- Railway free tier has 500 hours/month. Upgrade to Hobby ($5/mo) for always-on.
-- The `public/_redirects` file ensures React Router works on Cloudflare Pages (all routes → index.html).
+- **MongoDB Atlas** (free tier) is required for persistent news headlines, users, and fan zone state across Render restarts.
+- **football-data.org** free tier: 10 requests/minute — server caches football scores for 90s.
+- **TheSportsDB** public key `123` is rate-limited; register your own free key at [thesportsdb.com](https://www.thesportsdb.com/free_sports_api).
+- **Gemini quota**: AI narrative/momentum may fail at 429; set `OPENAI_API_KEY` for fallback. Live scores and RSS news do not use Gemini.
+- Render free tier spins down after ~15 min idle — first request after sleep may take 30–60s (cold start).

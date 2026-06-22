@@ -38,7 +38,8 @@ import {
   isTheSportsDbSport,
 } from './lib/thesportsdb.js';
 import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS } from './lib/sports-registry.js';
-import { fetchAllSportsNews } from './lib/news-feed.js';
+import { fetchAllSportsNews, newsItemsToHighlights } from './lib/news-feed.js';
+import { fetchStandingsForLeague, STANDINGS_SUPPORTED } from './lib/standings-feed.js';
 
 config(); // Load .env
 
@@ -1264,63 +1265,26 @@ app.get('/api/trending', async (req, res) => {
   res.json({ trending: results.slice(0, 3), source: results.length > 0 ? 'activity' : 'empty' });
 });
 
-// ── Highlights ──
+// ── Highlights (RSS news — no Gemini) ──
 app.get('/api/highlights', async (req, res) => {
   const now = Date.now();
   if (highlightsCache && (now - highlightsCacheTime) < HIGHLIGHTS_CACHE_TTL) {
     return res.json(highlightsCache);
   }
 
-  if (!hasGemini) {
-    const empty = { highlights: [], source: 'unavailable' };
-    highlightsCache = empty;
-    highlightsCacheTime = now;
-    return res.json(empty);
-  }
-
-  const prompt = `You are a sports news aggregator. Search the internet for the top 5 sports highlights from the last 24 hours.
-
-Return ONLY valid JSON array (no markdown) in this format:
-[
-  {
-    "id": 1,
-    "sport": "<cricket|football|nba|tennis|f1>",
-    "title": "<headline>",
-    "summary": "<2-3 sentence summary>",
-    "matchContext": "<teams/event>",
-    "timestamp": "<ISO timestamp>"
-  }
-]
-
-Return exactly 5 highlights. Return ONLY the JSON array.`;
-
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
-      }),
-    });
-    const data = await response.json();
-    let jsonStr = (data.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim();
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-    const arrayStart = jsonStr.indexOf('[');
-    const arrayEnd = jsonStr.lastIndexOf(']');
-    if (arrayStart !== -1 && arrayEnd !== -1) jsonStr = jsonStr.slice(arrayStart, arrayEnd + 1);
-    const highlights = JSON.parse(jsonStr);
-    const list = Array.isArray(highlights) ? highlights : [];
-    highlightsCache = { highlights: list, source: list.length > 0 ? 'gemini' : 'empty' };
+    let articles = await dbGetArticles(10);
+    if (!articles.length) {
+      articles = await fetchAllSportsNews({ newsApiKey: NEWSAPI_KEY });
+    }
+    const highlights = newsItemsToHighlights(articles, 5);
+    highlightsCache = { highlights, source: highlights.length ? 'rss' : 'empty' };
     highlightsCacheTime = now;
-    console.log(`   ✅ Highlights: ${list.length} items cached`);
+    console.log(`   ✅ Highlights: ${highlights.length} items from RSS/news`);
     res.json(highlightsCache);
   } catch (err) {
     console.error('   ❌ Highlights error:', err.message);
-    const empty = { highlights: [], source: 'unavailable', error: err.message };
+    const empty = { highlights: [], source: 'unavailable' };
     highlightsCache = empty;
     highlightsCacheTime = now;
     res.json(empty);
@@ -2128,11 +2092,6 @@ async function fetchCricketLiveFromAPI() {
   return (data.data || []).map(normalizeCricketMatchServer);
 }
 
-async function fetchFootballStandingsFromAPI() {
-  if (!hasFootballData) return null;
-  return fetchFootballDataStandings(getFootballDataClient(), 'PL');
-}
-
 function saveLiveSnapshot(sport, matches, source) {
   liveSnapshotCache[sport] = {
     matches,
@@ -2250,38 +2209,24 @@ IMPORTANT: Base your narrative ONLY on real data you found via internet search. 
 
   try {
     if (hasGemini) {
-      // Use Gemini with Google Search grounding for real-time data
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          tools: [{ google_search: {} }],
-          generationConfig: { maxOutputTokens: 800, temperature: 0.8 },
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Gemini ${response.status}: ${text.slice(0, 300)}`);
+      try {
+        const result = await callGeminiWithSearch(prompt, 800);
+        console.log('   ✅ AI Narrative generated (Gemini + Google Search)');
+        return res.json({ narrative: result, provider: 'gemini-search', source: 'internet' });
+      } catch (geminiErr) {
+        if (!isGeminiQuotaError(geminiErr) || !hasOpenAI) throw geminiErr;
+        console.warn('   ⚠️ Gemini quota — falling back to OpenAI for narrative');
       }
-      const data = await response.json();
-      const result = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      console.log('   ✅ AI Narrative generated (Gemini + Google Search)');
-      res.json({ narrative: result, provider: 'gemini-search', source: 'internet' });
-    } else if (hasOpenAI) {
+    }
+    if (hasOpenAI) {
       const result = await callOpenAI(prompt);
       console.log('   ✅ AI Narrative generated (OpenAI)');
-      res.json({ narrative: result, provider: 'openai', source: 'ai' });
-    } else {
-      res.status(503).json({ error: 'No AI API key configured', fallback: true });
+      return res.json({ narrative: result, provider: 'openai', source: 'ai' });
     }
+    return res.status(503).json({ error: 'No AI API key configured', fallback: true, unavailable: true });
   } catch (err) {
     console.error('   ❌ AI narrative:', err.message);
-    const friendly = /429|quota/i.test(err.message)
-      ? 'AI commentary is temporarily unavailable (quota reached). Live scores are unaffected.'
-      : 'AI commentary is temporarily unavailable.';
-    res.status(503).json({ error: friendly, fallback: true, unavailable: true });
+    res.status(503).json({ error: AI_UNAVAILABLE_MSG, fallback: true, unavailable: true });
   }
 });
 
@@ -2312,63 +2257,23 @@ IMPORTANT: Keep all descriptions extremely brief and concise. The total length o
 
   try {
     if (hasGemini) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-      console.log('   🔍 AI Preview: Researching upcoming match via Gemini + Google Search...');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          tools: [{ google_search: {} }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Gemini ${response.status}: ${text.slice(0, 300)}`);
-      }
-
-      const data = await response.json();
-      console.log('   🔍 AI Preview candidate details:', JSON.stringify(data.candidates?.[0]));
-      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-      console.log('   🔍 AI Preview raw response:', rawText);
-      
-      let jsonStr = rawText.trim();
-      const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenceMatch) {
-        jsonStr = fenceMatch[1].trim();
-      }
-
-      const objStart = jsonStr.indexOf('{');
-      const objEnd = jsonStr.lastIndexOf('}');
-      if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
-        jsonStr = jsonStr.slice(objStart, objEnd + 1);
-      }
-
-      let parsed = {};
       try {
-        parsed = JSON.parse(jsonStr);
-      } catch (parseErr) {
-        // Fallback cleanup: remove trailing commas or try resolving partial response if needed
-        try {
-          const cleaned = jsonStr.replace(/,\s*([}\]])/g, '$1');
-          parsed = JSON.parse(cleaned);
-        } catch (e) {
-          console.error('   ❌ Failed to parse AI Preview JSON:', parseErr.message, 'Raw:', rawText);
-          throw parseErr;
-        }
+        const rawText = await callGeminiWithSearch(prompt, 4096);
+        const parsed = parseJsonFromText(rawText);
+        return res.json(parsed);
+      } catch (geminiErr) {
+        if (!isGeminiQuotaError(geminiErr) || !hasOpenAI) throw geminiErr;
+        console.warn('   ⚠️ Gemini quota — falling back to OpenAI for preview');
       }
-      res.json(parsed);
-    } else {
-      res.status(503).json({ error: 'No Gemini API key configured', fallback: true });
     }
+    if (hasOpenAI) {
+      const parsed = await callOpenAI(prompt, { json: true, maxTokens: 1024 });
+      return res.json(parsed);
+    }
+    return res.status(503).json({ error: AI_UNAVAILABLE_MSG, fallback: true, unavailable: true });
   } catch (err) {
     console.error('   ❌ AI Preview error:', err.message);
-    res.status(502).json({ error: err.message, fallback: true });
+    res.status(503).json({ error: AI_UNAVAILABLE_MSG, fallback: true, unavailable: true });
   }
 });
 
@@ -2414,65 +2319,43 @@ RULES:
 - Return ONLY the JSON object, nothing else.`;
 
   try {
-    if (!hasGemini) {
-      return res.status(503).json({ error: 'No Gemini API key configured', fallback: true });
+    let rawText = '';
+    if (hasGemini) {
+      try {
+        rawText = await callGeminiWithSearch(prompt, 2048);
+      } catch (geminiErr) {
+        if (!isGeminiQuotaError(geminiErr) || !hasOpenAI) throw geminiErr;
+        console.warn('   ⚠️ Gemini quota — falling back to OpenAI for momentum');
+        rawText = JSON.stringify(await callOpenAI(prompt, { json: true, maxTokens: 2048 }));
+      }
+    } else if (hasOpenAI) {
+      const parsed = await callOpenAI(prompt, { json: true, maxTokens: 2048 });
+      rawText = JSON.stringify(parsed);
+    } else {
+      return res.status(503).json({ error: AI_UNAVAILABLE_MSG, fallback: true, unavailable: true });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    console.log('   🔍 AI Momentum: Analyzing match via Gemini + Google Search...');
+    const parsed = typeof rawText === 'string' ? parseJsonFromText(rawText) : rawText;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048,
-        },
-      }),
-    });
+    const result = {
+      teamA: parsed.teamA || 'Team A',
+      teamB: parsed.teamB || 'Team B',
+      probA: Math.min(100, Math.max(0, parsed.probA || 50)),
+      probB: Math.min(100, Math.max(0, parsed.probB || 50)),
+      points: Array.isArray(parsed.points) ? parsed.points : [],
+      keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments.slice(0, 8) : [],
+      narrative: parsed.narrative || '',
+      momentum_team: parsed.momentum_team || '',
+      summary: parsed.narrative || parsed.summary || '',
+      source: hasOpenAI && !hasGemini ? 'ai' : 'internet',
+      provider: hasOpenAI && !hasGemini ? 'openai' : 'gemini-search',
+    };
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Gemini ${response.status}: ${text.slice(0, 300)}`);
-    }
-
-    const data = await response.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-
-    // Extract JSON from possible markdown fences
-    let jsonStr = rawText.trim();
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) jsonStr = fenceMatch[1].trim();
-
-    try {
-      const parsed = JSON.parse(jsonStr);
-
-      // Validate and normalize
-      const result = {
-        teamA: parsed.teamA || 'Team A',
-        teamB: parsed.teamB || 'Team B',
-        probA: Math.min(100, Math.max(0, parsed.probA || 50)),
-        probB: Math.min(100, Math.max(0, parsed.probB || 50)),
-        points: Array.isArray(parsed.points) ? parsed.points : [],
-        keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments.slice(0, 8) : [],
-        narrative: parsed.narrative || '',
-        momentum_team: parsed.momentum_team || '',
-        source: 'internet',
-        provider: 'gemini-search',
-      };
-
-      console.log(`   ✅ AI Momentum: ${result.teamA} ${result.probA}% vs ${result.teamB} ${result.probB}% (${result.points.length} data points, ${result.keyMoments.length} moments)`);
-      res.json(result);
-    } catch {
-      console.error('   ⚠️ AI Momentum parse error. Raw:', jsonStr.slice(0, 500));
-      res.json({ raw: rawText, fallback: true });
-    }
+    console.log(`   ✅ AI Momentum: ${result.teamA} ${result.probA}% vs ${result.teamB} ${result.probB}%`);
+    res.json(result);
   } catch (err) {
     console.error('   ❌ AI momentum:', err.message);
-    res.status(502).json({ error: err.message, fallback: true });
+    res.status(503).json({ error: AI_UNAVAILABLE_MSG, fallback: true, unavailable: true });
   }
 });
 
@@ -2549,26 +2432,75 @@ app.post('/api/ai/social-sentiment', aiLimiter, async (req, res) => {
 });
 
 // ── OpenAI Helper ──
-async function callOpenAI(prompt) {
+function isGeminiQuotaError(err) {
+  return /429|quota|resource.exhausted/i.test(String(err?.message || err));
+}
+
+const AI_UNAVAILABLE_MSG = 'AI commentary is temporarily unavailable. Live scores are unaffected.';
+
+async function callGeminiWithSearch(prompt, maxOutputTokens = 800) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { maxOutputTokens, temperature: 0.5 },
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gemini ${response.status}: ${text.slice(0, 300)}`);
+  }
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+async function callOpenAI(prompt, { json = false, maxTokens = 500 } = {}) {
+  const body = {
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: maxTokens,
+    temperature: 0.5,
+  };
+  if (json) body.response_format = { type: 'json_object' };
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 500,
-      temperature: 0.8,
-    }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`OpenAI ${response.status}: ${text}`);
   }
   const data = await response.json();
-  return data.choices[0].message.content;
+  const content = data.choices[0].message.content;
+  if (json) {
+    try {
+      return JSON.parse(content);
+    } catch {
+      const start = content.indexOf('{');
+      const end = content.lastIndexOf('}');
+      if (start !== -1 && end > start) return JSON.parse(content.slice(start, end + 1));
+      throw new Error('OpenAI returned invalid JSON');
+    }
+  }
+  return content;
+}
+
+function parseJsonFromText(rawText) {
+  let jsonStr = String(rawText || '').trim();
+  const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) jsonStr = fenceMatch[1].trim();
+  const objStart = jsonStr.indexOf('{');
+  const objEnd = jsonStr.lastIndexOf('}');
+  if (objStart !== -1 && objEnd > objStart) jsonStr = jsonStr.slice(objStart, objEnd + 1);
+  return JSON.parse(jsonStr);
 }
 
 // ── Gemini Helper ──
@@ -3309,26 +3241,26 @@ app.get('/api/sports/standings/:league', async (req, res) => {
     return res.status(400).json({ error: `Invalid league: ${league}. Use: ${validLeagues.join(', ')}` });
   }
 
+  if (!STANDINGS_SUPPORTED.has(league)) {
+    return res.json([]);
+  }
+
   if (isStandingsCacheValid(league)) {
     console.log(`   📦 Standings Cache HIT for ${league}`);
     return res.json(standingsCache[league].data);
   }
 
   try {
-    if (league === 'football' && hasFootballData) {
-      try {
-        const apiRows = await fetchFootballStandingsFromAPI();
-        if (apiRows?.length) {
-          standingsCache[league] = { data: apiRows, timestamp: Date.now() };
-          console.log(`   ✅ Football standings from football-data.org (${apiRows.length} teams)`);
-          return res.json(apiRows);
-        }
-      } catch (apiErr) {
-        console.warn(`   ⚠️ Football standings failed (${apiErr.message})`);
-      }
+    const footballClient = hasFootballData ? getFootballDataClient() : null;
+    const tsdClient = getTheSportsDbClient();
+    const apiRows = await fetchStandingsForLeague(league, { footballClient, tsdClient });
+    if (apiRows?.length) {
+      standingsCache[league] = { data: apiRows, timestamp: Date.now() };
+      console.log(`   ✅ ${league} standings (${apiRows.length} rows)`);
+      return res.json(apiRows);
     }
 
-    console.warn(`   ℹ️ Standings for ${league}: no table configured for this provider`);
+    console.warn(`   ℹ️ Standings for ${league}: no data returned`);
     return res.json([]);
   } catch (err) {
     console.warn(`   ⚠️ Standings fetch failed for ${league}. Reason:`, err.message);

@@ -41,10 +41,18 @@ export function useTrending() {
   });
 }
 
+export function useHeadlines(limit = 6) {
+  return useQuery({
+    queryKey: ['headlines', limit],
+    queryFn: () => fetch(apiUrl(`/api/blog?limit=${limit}`)).then(r => r.json()).then(d => Array.isArray(d) ? d : []),
+    staleTime: 300_000,
+  });
+}
+
 export function useStandings(sport = 'football') {
   return useQuery({
     queryKey: ['standings', sport],
-    queryFn: () => fetch(apiUrl(`/api/standings/${sport}`)).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/sports/standings/${sport}`)).then(r => r.json()),
     staleTime: 300_000,
   });
 }

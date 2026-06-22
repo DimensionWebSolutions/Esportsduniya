@@ -42,7 +42,11 @@ export function MatchMomentum({ match }) {
               <div className="bg-surface-3 transition-all" style={{ width: `${teamB}%` }} />
             </div>
             <p className="font-data text-sm text-muted">{teamA}% / {teamB}% win probability</p>
-            {data?.summary && <p className="text-sm text-muted">{data.summary}</p>}
+            {data?.unavailable ? (
+              <p className="text-sm text-muted">Momentum analysis is temporarily unavailable.</p>
+            ) : data?.summary ? (
+              <p className="text-sm text-muted">{data.summary}</p>
+            ) : null}
           </div>
         )}
       </CardContent>

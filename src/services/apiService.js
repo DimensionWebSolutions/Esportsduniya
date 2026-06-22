@@ -369,7 +369,7 @@ export async function fetchAINarrative(matchContext, tone = 'hype') {
             signal: AbortSignal.timeout(30000),
         });
         const data = await res.json();
-        if (data.fallback || data.error || !data.narrative) {
+        if (data.fallback || data.error || data.unavailable || !data.narrative) {
             return { text: null, source: 'unavailable', unavailable: true };
         }
         return { text: data.narrative, source: data.source || 'ai', provider: data.provider || 'unknown' };
@@ -411,7 +411,7 @@ export async function fetchMomentumAnalysis(matchContext, events) {
             signal: AbortSignal.timeout(30000),
         });
         const data = await res.json();
-        if (data.fallback || data.error) return { unavailable: true, source: 'unavailable' };
+        if (data.fallback || data.error || data.unavailable) return { unavailable: true, source: 'unavailable' };
 
         return {
             teamA: data.teamA,
@@ -422,6 +422,7 @@ export async function fetchMomentumAnalysis(matchContext, events) {
             keyMoments: data.keyMoments || [],
             narrative: data.narrative || '',
             momentum_team: data.momentum_team || '',
+            summary: data.summary || data.narrative || '',
             source: data.source || 'ai',
             provider: data.provider || 'unknown',
         };

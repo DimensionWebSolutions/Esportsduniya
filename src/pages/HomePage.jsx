@@ -1,8 +1,8 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { RefreshCw, Radio } from 'lucide-react';
+import { RefreshCw, Radio, ExternalLink } from 'lucide-react';
 import { SPORTS } from '@/data/mockData.js';
-import { useLiveScores, usePublicStats, useTrending } from '@/hooks/useLiveScores';
+import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hooks/useLiveScores';
 import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
@@ -32,6 +32,7 @@ export default function HomePage() {
   const { data, isLoading, error, refetch, isFetching } = useLiveScores(activeSport);
   const { data: socialStats } = usePublicStats();
   const { data: trending = [] } = useTrending();
+  const { data: headlines = [] } = useHeadlines(6);
 
   const matches = data?.matches || [];
   const filtered = activeSport === 'all'
@@ -114,6 +115,33 @@ export default function HomePage() {
         <div className="mb-6 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
           Some scores are temporarily unavailable. {data.meta.stale ? 'Showing cached scores.' : 'Try refreshing in a moment.'}
         </div>
+      )}
+
+      {headlines.length > 0 && (
+        <Section title="Latest headlines" className="mb-8" description="Top sports news right now">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {headlines.map(h => (
+              <a
+                key={h.slug}
+                href={h.sourceUrl || `/blog`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group rounded-xl border border-border bg-surface-1 p-4 transition-colors hover:border-accent/40 hover:bg-surface-2"
+              >
+                <p className="text-xs uppercase tracking-wide text-muted">
+                  {h.category}{h.sourceName ? ` · ${h.sourceName}` : ''}
+                </p>
+                <p className="mt-2 line-clamp-2 text-sm font-medium text-foreground group-hover:text-accent">
+                  {h.title}
+                </p>
+                <span className="mt-2 inline-flex items-center gap-1 text-xs text-muted">
+                  Read story <ExternalLink className="h-3 w-3" />
+                </span>
+              </a>
+            ))}
+          </div>
+          <Link to="/blog" className="mt-4 inline-block text-sm text-accent hover:underline">View all news →</Link>
+        </Section>
       )}
 
       {trending.length > 0 && (

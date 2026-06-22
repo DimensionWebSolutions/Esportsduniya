@@ -1,16 +1,18 @@
-import { LIVE_SPORT_IDS } from '../../lib/sports-registry.js';
+/** Leagues with real standings data on the backend */
+export const STANDINGS_SUPPORTED = ['football', 'f1', 'nba'];
 
-function labelFor(id) {
-  const labels = {
-    f1: 'F1',
-    nba: 'NBA',
-    nfl: 'NFL',
-    mma: 'MMA',
-    afl: 'AFL',
-  };
-  return labels[id] || id.charAt(0).toUpperCase() + id.slice(1);
-}
+const LABELS = {
+  football: 'Football',
+  f1: 'F1',
+  nba: 'NBA',
+  cricket: 'Cricket',
+  tennis: 'Tennis',
+};
 
-const LEAGUES = LIVE_SPORT_IDS.map(id => ({ id, label: labelFor(id) }));
+const LEAGUES = STANDINGS_SUPPORTED.map(id => ({
+  id,
+  label: LABELS[id] || id.charAt(0).toUpperCase() + id.slice(1),
+  supported: true,
+}));
 
 export default LEAGUES;
