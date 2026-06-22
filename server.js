@@ -23,13 +23,21 @@ import rateLimit from 'express-rate-limit';
 import nodemailer from 'nodemailer';
 import * as Sentry from '@sentry/node';
 import {
-  createApisportsClient,
-  fetchApisportsLiveMatches,
-  isApisportsSport,
-  normalizeFootballFixture,
-  assertSportsApiPayload,
-} from './lib/apisports.js';
-import { LIVE_SPORT_IDS, APISPORTS_SPORT_IDS } from './lib/sports-registry.js';
+  createFootballDataClient,
+  fetchFootballDataMatches,
+  fetchFootballDataUpcoming,
+  fetchFootballDataStandings,
+  fetchFootballDataMatch,
+  fetchFootballDataLeagueMatches,
+  footballDataMatchToTimeline,
+} from './lib/football-data.js';
+import {
+  createTheSportsDbClient,
+  fetchTheSportsDbSportEvents,
+  fetchTheSportsDbUpcoming,
+  isTheSportsDbSport,
+} from './lib/thesportsdb.js';
+import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS } from './lib/sports-registry.js';
 
 config(); // Load .env
 
@@ -1318,7 +1326,9 @@ Return exactly 5 highlights. Return ONLY the JSON array.`;
 const PORT = process.env.PORT || 3001;
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-const APISPORTS_KEY = process.env.APISPORTS_KEY || process.env.API_FOOTBALL_KEY;
+const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY || process.env.VITE_FOOTBALL_API_KEY;
+const THESPORTSDB_API_KEY = process.env.THESPORTSDB_API_KEY || '123';
+const CRICAPI_KEY = process.env.CRICAPI_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -1326,22 +1336,24 @@ function isKeySet(key, placeholder) {
   return key && key !== placeholder && key.length > 10;
 }
 
-const hasRapidAPI = isKeySet(RAPIDAPI_KEY, 'your_rapidapi_key_here');
-const hasApisports = isKeySet(APISPORTS_KEY, 'your_apisports_key_here');
-const hasFootballAPI = hasApisports || hasRapidAPI;
-const hasApisportsCredentials = hasFootballAPI;
+const hasFootballData = isKeySet(FOOTBALL_DATA_KEY, 'your football-data api key here')
+  && !FOOTBALL_DATA_KEY.includes('your football');
+const hasCricAPI = isKeySet(CRICAPI_KEY, 'your_cricapi_key_here');
 
-let apisportsClient = null;
-function getApisportsClient() {
-  if (!apisportsClient) {
-    apisportsClient = createApisportsClient({
-      apisportsKey: APISPORTS_KEY,
-      rapidKey: RAPIDAPI_KEY,
-      hasApisports,
-      hasRapidAPI,
-    });
+let footballDataClient = null;
+function getFootballDataClient() {
+  if (!footballDataClient) {
+    footballDataClient = createFootballDataClient(FOOTBALL_DATA_KEY);
   }
-  return apisportsClient;
+  return footballDataClient;
+}
+
+let theSportsDbClient = null;
+function getTheSportsDbClient() {
+  if (!theSportsDbClient) {
+    theSportsDbClient = createTheSportsDbClient(THESPORTSDB_API_KEY);
+  }
+  return theSportsDbClient;
 }
 const hasOpenAI = isKeySet(OPENAI_API_KEY, 'your_openai_key_here');
 const hasGemini = isKeySet(GEMINI_API_KEY, 'your_gemini_key_here');
@@ -1354,14 +1366,14 @@ app.get('/api/health', (req, res) => {
       ? (mongoConnectionError ? 'connection-failed' : 'connecting')
       : 'in-memory';
 
-  const hasCricAPI = isKeySet(process.env.CRICAPI_KEY, 'your_cricapi_key_here');
+  const hasCricAPIHealth = hasCricAPI;
 
   res.json({
     status: 'ok',
     apis: {
-      sports: hasFootballAPI ? 'configured' : 'missing',
-      footballApi: hasApisports ? 'apisports-direct' : (hasRapidAPI ? 'rapidapi' : 'missing'),
-      cricapi: hasCricAPI ? 'configured' : 'missing',
+      football: hasFootballData ? 'configured' : 'missing',
+      thesportsdb: THESPORTSDB_API_KEY ? 'configured' : 'missing',
+      cricapi: hasCricAPIHealth ? 'configured' : 'missing',
       aiScores: hasGemini ? 'configured' : 'missing',
       openai: hasOpenAI ? 'configured' : 'missing',
       gemini: hasGemini ? 'configured' : 'missing',
@@ -1629,72 +1641,75 @@ app.get('/api/crowdpulse', async (req, res) => {
 app.get('/api/validate', async (req, res) => {
   const results = {
     timestamp: new Date().toISOString(),
-    rapidapi: { status: 'skipped', message: 'No key configured' },
+    footballData: { status: 'skipped', message: 'No key configured' },
+    thesportsdb: { status: 'skipped', message: 'No key configured' },
+    cricapi: { status: 'skipped', message: 'No key configured' },
     gemini: { status: 'skipped', message: 'No key configured' },
     openai: { status: 'skipped', message: 'No key configured' },
   };
 
-  // 1. Test API-Football key (APISPORTS direct or RapidAPI)
-  if (hasFootballAPI) {
+  if (hasFootballData) {
     try {
-      const headers = hasApisports
-        ? { 'x-apisports-key': APISPORTS_KEY }
-        : {
-          'x-rapidapi-key': RAPIDAPI_KEY,
-          'x-rapidapi-host': 'v3.football.api-sports.io',
-        };
-      const response = await fetch('https://v3.football.api-sports.io/status', { headers });
-      const data = await response.json();
-      assertSportsApiPayload(data);
-
-      if (response.ok && data.response) {
-        const acct = data.response.account;
-        const sub = data.response.subscription;
-        const reqs = data.response.requests;
-        results.rapidapi = {
+      const response = await fetch('https://api.football-data.org/v4/competitions/PL', {
+        headers: { 'X-Auth-Token': FOOTBALL_DATA_KEY },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        results.footballData = {
           status: '✅ WORKING',
-          provider: hasApisports ? 'api-football.com (direct)' : 'rapidapi',
-          account: acct?.email || 'unknown',
-          plan: sub?.plan || 'unknown',
-          requestsToday: `${reqs?.current || 0} / ${reqs?.limit_day || 0}`,
-          remainingToday: (reqs?.limit_day || 0) - (reqs?.current || 0),
-        };
-      } else if (response.status === 403) {
-        results.rapidapi = {
-          status: '⚠️ KEY VALID — NOT SUBSCRIBED',
-          message: 'Your key works, but you need an active API-Football subscription.',
-          action: hasApisports
-            ? 'Check your plan at https://dashboard.api-football.com'
-            : 'Go to https://rapidapi.com/api-sports/api/api-football → Subscribe to the FREE plan',
+          provider: 'football-data.org',
+          competition: data.name || 'Premier League',
         };
       } else {
-        results.rapidapi = { status: '❌ ERROR', message: JSON.stringify(data) };
-      }
-
-      // Probe fixtures endpoint — status can pass while fixture calls fail (wrong key type)
-      const probe = await fetch('https://v3.football.api-sports.io/fixtures?next=1', { headers });
-      const probeData = await probe.json();
-      try {
-        assertSportsApiPayload(probeData);
-        results.footballFixtures = {
-          status: '✅ WORKING',
-          sampleResults: probeData.results ?? 0,
-        };
-      } catch (probeErr) {
-        results.footballFixtures = {
-          status: '❌ FIXTURES FAILED',
-          message: probeErr.message,
-          hint: hasRapidAPI && !hasApisports
-            ? 'If you subscribed at api-football.com, set APISPORTS_KEY (not RAPIDAPI_KEY) on Render.'
-            : 'Verify APISPORTS_KEY at https://dashboard.api-football.com',
-        };
+        const text = await response.text();
+        results.footballData = { status: '❌ ERROR', message: `HTTP ${response.status}: ${text.slice(0, 200)}` };
       }
     } catch (err) {
-      results.rapidapi = { status: '❌ ERROR', message: err.message };
+      results.footballData = { status: '❌ ERROR', message: err.message };
     }
   }
 
-  // 2. Test Gemini key
+  if (THESPORTSDB_API_KEY) {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const url = `https://www.thesportsdb.com/api/v1/json/${THESPORTSDB_API_KEY}/eventsday.php?d=${today}&s=Basketball`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (response.ok) {
+        results.thesportsdb = {
+          status: '✅ WORKING',
+          provider: 'thesportsdb.com (free v1)',
+          sampleEvents: data.events?.length ?? 0,
+          key: THESPORTSDB_API_KEY === '123' ? 'public test key (123)' : 'custom',
+        };
+      } else {
+        results.thesportsdb = { status: '❌ ERROR', message: `HTTP ${response.status}` };
+      }
+    } catch (err) {
+      results.thesportsdb = { status: '❌ ERROR', message: err.message };
+    }
+  }
+
+  if (hasCricAPI) {
+    try {
+      const response = await fetch(`https://api.cricapi.com/v1/currentMatches?apikey=${CRICAPI_KEY}&offset=0`);
+      const data = await response.json();
+      if (data.status === 'success') {
+        results.cricapi = {
+          status: '✅ WORKING',
+          provider: 'cricapi.com',
+          liveMatches: data.data?.length ?? 0,
+        };
+      } else {
+        results.cricapi = { status: '❌ ERROR', message: data.reason || 'CricAPI error' };
+      }
+    } catch (err) {
+      results.cricapi = { status: '❌ ERROR', message: err.message };
+    }
+  }
+
+  // Legacy alias for admin dashboards that still read results.rapidapi
+  results.rapidapi = results.footballData;
   if (hasGemini) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -1772,12 +1787,8 @@ app.get('/api/validate', async (req, res) => {
 });
 
 // ============================================
-// SPORTS API ENDPOINTS (API-Sports — single APISPORTS_KEY)
+// SPORTS API ENDPOINTS (football-data.org + TheSportsDB + CricAPI)
 // ============================================
-
-async function fetchSportsAPI(sportId, endpoint) {
-  return getApisportsClient().fetchApi(sportId, endpoint);
-}
 
 // ── Football Live ──
 app.get('/api/sports/football/live', async (req, res) => {
@@ -1791,11 +1802,12 @@ app.get('/api/sports/football/live', async (req, res) => {
 
 // ── Football by League ──
 app.get('/api/sports/football/league/:leagueId', async (req, res) => {
+  if (!hasFootballData) {
+    return res.status(503).json({ error: 'FOOTBALL_DATA_KEY not configured', fallback: true });
+  }
   try {
-    const { leagueId } = req.params;
-    const season = getCurrentSeason();
-    const data = await fetchSportsAPI('football', `/fixtures?league=${leagueId}&season=${season}&next=10`);
-    res.json(data);
+    const matches = await fetchFootballDataLeagueMatches(getFootballDataClient(), req.params.leagueId);
+    res.json({ response: matches, results: matches.length });
   } catch (err) {
     console.error('   ❌ Football league:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
@@ -1804,9 +1816,15 @@ app.get('/api/sports/football/league/:leagueId', async (req, res) => {
 
 // ── Football Events ──
 app.get('/api/sports/football/events/:fixtureId', async (req, res) => {
+  if (!hasFootballData) {
+    return res.status(503).json({ error: 'FOOTBALL_DATA_KEY not configured', fallback: true });
+  }
   try {
-    const data = await fetchSportsAPI('football', `/fixtures/events?fixture=${req.params.fixtureId}`);
-    res.json(data);
+    const match = await fetchFootballDataMatch(getFootballDataClient(), req.params.fixtureId);
+    res.json({
+      response: footballDataMatchToTimeline(match),
+      match,
+    });
   } catch (err) {
     console.error('   ❌ Football events:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
@@ -1881,9 +1899,8 @@ app.get('/api/sports/tennis/live', async (req, res) => {
 // ── F1 Races ──
 app.get('/api/sports/f1/races', async (req, res) => {
   try {
-    const season = getCurrentSeason();
-    const data = await fetchSportsAPI('f1', `/races?season=${season}&type=Race`);
-    res.json(data);
+    const matches = await fetchTheSportsDbSportEvents('f1', getTheSportsDbClient(), getTodayDate());
+    res.json({ response: matches, results: matches.length });
   } catch (err) {
     console.error('   ❌ F1:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
@@ -1893,8 +1910,8 @@ app.get('/api/sports/f1/races', async (req, res) => {
 // ── F1 Next Race (Upcoming) ──
 app.get('/api/sports/f1/upcoming', async (req, res) => {
   try {
-    const data = await fetchSportsAPI('f1', '/races?next=1');
-    res.json(data);
+    const matches = await fetchTheSportsDbUpcoming('f1', getTheSportsDbClient(), getTodayDate());
+    res.json({ response: matches, results: matches.length });
   } catch (err) {
     console.error('   ❌ F1 Upcoming:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
@@ -1915,11 +1932,13 @@ function getCurrentSeason() {
 
 // ── Football Upcoming ──
 app.get('/api/sports/football/upcoming', async (req, res) => {
+  if (!hasFootballData) {
+    return res.status(503).json({ error: 'FOOTBALL_DATA_KEY not configured', fallback: true });
+  }
   try {
-    // Determine the next few games
-    const data = await fetchSportsAPI('football', '/fixtures?next=10');
-    console.log(`   🗓️ Football Upcoming: ${data.results || 0} matches`);
-    res.json(data);
+    const matches = await fetchFootballDataUpcoming(getFootballDataClient());
+    console.log(`   🗓️ Football Upcoming: ${matches.length} matches`);
+    res.json({ response: matches, results: matches.length });
   } catch (err) {
     console.error('   ❌ Football Upcoming:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
@@ -1929,10 +1948,9 @@ app.get('/api/sports/football/upcoming', async (req, res) => {
 // ── NBA Upcoming ──
 app.get('/api/sports/nba/upcoming', async (req, res) => {
   try {
-    const today = getTodayDate();
-    const data = await fetchSportsAPI('nba', `/games?date=${today}`);
-    console.log(`   🗓️ NBA Upcoming: ${data.results || 0} games for ${today}`);
-    res.json(data);
+    const matches = await fetchTheSportsDbUpcoming('nba', getTheSportsDbClient(), getTodayDate());
+    console.log(`   🗓️ NBA Upcoming: ${matches.length} games`);
+    res.json({ response: matches, results: matches.length });
   } catch (err) {
     console.error('   ❌ NBA Upcoming:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
@@ -1942,25 +1960,21 @@ app.get('/api/sports/nba/upcoming', async (req, res) => {
 // ── Tennis Upcoming ──
 app.get('/api/sports/tennis/upcoming', async (req, res) => {
   try {
-    const today = getTodayDate();
-    const data = await fetchSportsAPI('tennis', `/games?date=${today}`);
-    console.log(`   🗓️ Tennis Upcoming: ${data.results || 0} matches for ${today}`);
-    res.json(data);
+    const matches = await fetchTheSportsDbUpcoming('tennis', getTheSportsDbClient(), getTodayDate());
+    console.log(`   🗓️ Tennis Upcoming: ${matches.length} matches`);
+    res.json({ response: matches, results: matches.length });
   } catch (err) {
     console.error('   ❌ Tennis Upcoming:', err.message);
     res.status(502).json({ error: err.message, fallback: true });
   }
 });
 
-// ── Cricket ──
-const CRICAPI_KEY = process.env.CRICAPI_KEY;
-const hasCricAPI = isKeySet(CRICAPI_KEY, 'your_cricapi_key_here');
-
 // Last-known-good live score snapshots (shared across all clients)
 const liveSnapshotCache = {};
 const LIVE_SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000;
-const apisportsResponseCache = {};
-const APISPORTS_RESPONSE_TTL_MS = 55_000;
+const sportResponseCache = {};
+const FOOTBALL_CACHE_TTL_MS = 90_000;
+const THESPORTSDB_CACHE_TTL_MS = 120_000;
 
 function normalizeCricketMatchServer(game) {
   const isLive = game.matchStarted && !game.matchEnded;
@@ -1987,26 +2001,73 @@ function normalizeCricketMatchServer(game) {
   };
 }
 
-function normalizeFootballMatchServer(fixture) {
-  return normalizeFootballFixture(fixture);
-}
-
-async function getApisportsSportLive(sportId) {
-  if (!hasApisportsCredentials) {
+async function getFootballDataLive() {
+  if (!hasFootballData) {
     return {
       matches: [],
       source: 'unavailable',
       fetchedAt: null,
       stale: false,
-      error: 'APISPORTS_KEY not configured on server',
+      error: 'FOOTBALL_DATA_KEY not configured on server',
     };
   }
 
-  const memCached = apisportsResponseCache[sportId];
-  if (memCached && Date.now() - memCached.timestamp < APISPORTS_RESPONSE_TTL_MS) {
+  const memCached = sportResponseCache.football;
+  if (memCached && Date.now() - memCached.timestamp < FOOTBALL_CACHE_TTL_MS) {
     return {
       matches: memCached.matches,
-      source: 'api-sports',
+      source: 'football-data',
+      fetchedAt: new Date(memCached.timestamp).toISOString(),
+      stale: false,
+    };
+  }
+
+  try {
+    const prev = liveSnapshotCache.football?.matches;
+    const matches = await fetchFootballDataMatches(getFootballDataClient(), getTodayDate());
+
+    if (matches.length) {
+      detectScoreMoments(prev, matches);
+      saveLiveSnapshot('football', matches, 'football-data');
+      sportResponseCache.football = { matches, timestamp: Date.now() };
+      return {
+        matches,
+        source: 'football-data',
+        fetchedAt: liveSnapshotCache.football.fetchedAt,
+        stale: false,
+      };
+    }
+
+    const stale = getStaleSnapshot('football');
+    if (stale) return stale;
+
+    sportResponseCache.football = { matches: [], timestamp: Date.now() };
+    return {
+      matches: [],
+      source: 'football-data',
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    };
+  } catch (err) {
+    console.warn(`   ⚠️ football-data.org failed (${err.message})`);
+    const stale = getStaleSnapshot('football');
+    if (stale) return { ...stale, error: err.message };
+    return {
+      matches: [],
+      source: 'unavailable',
+      fetchedAt: null,
+      stale: false,
+      error: err.message,
+    };
+  }
+}
+
+async function getTheSportsDbSportLive(sportId) {
+  const memCached = sportResponseCache[sportId];
+  if (memCached && Date.now() - memCached.timestamp < THESPORTSDB_CACHE_TTL_MS) {
+    return {
+      matches: memCached.matches,
+      source: 'thesportsdb',
       fetchedAt: new Date(memCached.timestamp).toISOString(),
       stale: false,
     };
@@ -2014,15 +2075,15 @@ async function getApisportsSportLive(sportId) {
 
   try {
     const prev = liveSnapshotCache[sportId]?.matches;
-    const matches = await fetchApisportsLiveMatches(sportId, getApisportsClient(), getTodayDate());
+    const matches = await fetchTheSportsDbSportEvents(sportId, getTheSportsDbClient(), getTodayDate());
 
     if (matches.length) {
       detectScoreMoments(prev, matches);
-      saveLiveSnapshot(sportId, matches, 'api-sports');
-      apisportsResponseCache[sportId] = { matches, timestamp: Date.now() };
+      saveLiveSnapshot(sportId, matches, 'thesportsdb');
+      sportResponseCache[sportId] = { matches, timestamp: Date.now() };
       return {
         matches,
-        source: 'api-sports',
+        source: 'thesportsdb',
         fetchedAt: liveSnapshotCache[sportId].fetchedAt,
         stale: false,
       };
@@ -2031,17 +2092,17 @@ async function getApisportsSportLive(sportId) {
     const stale = getStaleSnapshot(sportId);
     if (stale) return stale;
 
+    sportResponseCache[sportId] = { matches: [], timestamp: Date.now() };
     return {
       matches: [],
-      source: 'api-sports',
+      source: 'thesportsdb',
       fetchedAt: new Date().toISOString(),
       stale: false,
     };
   } catch (err) {
-    console.warn(`   ⚠️ API-Sports ${sportId} failed (${err.message})`);
+    console.warn(`   ⚠️ TheSportsDB ${sportId} failed (${err.message})`);
     const stale = getStaleSnapshot(sportId);
     if (stale) return { ...stale, error: err.message };
-
     return {
       matches: [],
       source: 'unavailable',
@@ -2062,17 +2123,8 @@ async function fetchCricketLiveFromAPI() {
 }
 
 async function fetchFootballStandingsFromAPI() {
-  const season = getCurrentSeason();
-  const data = await fetchSportsAPI('football', `/standings?league=39&season=${season}`);
-  const table = data.response?.[0]?.league?.standings?.[0] || [];
-  if (!table.length) return null;
-  return table.map(row => ({
-    team: row.team?.name || 'Unknown',
-    wins: row.all?.win ?? 0,
-    losses: row.all?.lose ?? 0,
-    draws: row.all?.draw ?? 0,
-    points: row.points ?? 0,
-  }));
+  if (!hasFootballData) return null;
+  return fetchFootballDataStandings(getFootballDataClient(), 'PL');
 }
 
 function saveLiveSnapshot(sport, matches, source) {
@@ -2099,6 +2151,9 @@ function getStaleSnapshot(sport) {
 
 async function getRealSportLive(sport) {
   if (sport === 'cricket') {
+    if (!hasCricAPI) {
+      return { matches: [], source: 'unavailable', fetchedAt: null, stale: false, error: 'CRICAPI_KEY not configured' };
+    }
     try {
       const prev = liveSnapshotCache.cricket?.matches;
       const matches = await fetchCricketLiveFromAPI();
@@ -2113,11 +2168,15 @@ async function getRealSportLive(sport) {
       if (stale) return stale;
       return { matches: [], source: 'unavailable', fetchedAt: null, stale: false, error: err.message };
     }
-    return { matches: [], source: 'unavailable', fetchedAt: null, stale: false, error: 'CricAPI not configured' };
+    return { matches: [], source: 'unavailable', fetchedAt: null, stale: false, error: 'CricAPI returned no matches' };
   }
 
-  if (isApisportsSport(sport)) {
-    return getApisportsSportLive(sport);
+  if (sport === 'football') {
+    return getFootballDataLive();
+  }
+
+  if (isTheSportsDbSport(sport)) {
+    return getTheSportsDbSportLive(sport);
   }
 
   return null;
@@ -2136,10 +2195,10 @@ app.get('/api/sports/cricket/live', async (req, res) => {
   res.json({ response: result.matches, results: result.matches.length, ...result });
 });
 
-// ── Generic API-Sports live (baseball, hockey, mma, nfl, afl, basketball, f1, …) ──
+// ── Generic TheSportsDB live (baseball, hockey, mma, nfl, afl, basketball, f1, …) ──
 app.get('/api/sports/:sport/live', async (req, res) => {
   const { sport } = req.params;
-  if (!isApisportsSport(sport) || ['football', 'nba', 'tennis'].includes(sport)) {
+  if (!isTheSportsDbSport(sport) || ['football', 'nba', 'tennis'].includes(sport)) {
     return res.status(404).json({ error: 'Use the dedicated live route for this sport' });
   }
   const result = await getRealSportLive(sport);
@@ -3025,7 +3084,7 @@ function sanitizeScoreFeedError(error) {
   return error;
 }
 
-// ── Unified Live Scores (API-Sports + CricAPI only — never Gemini for scores) ──
+// ── Unified Live Scores (football-data + TheSportsDB + CricAPI — never Gemini for scores) ──
 app.get('/api/sports/live/:sport', async (req, res) => {
   const sport = req.params.sport;
   const validSports = ['all', ...LIVE_SPORT_IDS];
@@ -3238,7 +3297,7 @@ Do not include markdown formatting like \`\`\`json. Return ONLY the raw valid JS
 // ── Standings Endpoint ──
 app.get('/api/sports/standings/:league', async (req, res) => {
   const league = req.params.league;
-  const validLeagues = ['cricket', ...APISPORTS_SPORT_IDS];
+  const validLeagues = ['cricket', 'football', ...THESPORTSDB_SPORT_IDS];
 
   if (!validLeagues.includes(league)) {
     return res.status(400).json({ error: `Invalid league: ${league}. Use: ${validLeagues.join(', ')}` });
@@ -3250,21 +3309,20 @@ app.get('/api/sports/standings/:league', async (req, res) => {
   }
 
   try {
-    if (league === 'football' && hasFootballAPI) {
+    if (league === 'football' && hasFootballData) {
       try {
         const apiRows = await fetchFootballStandingsFromAPI();
         if (apiRows?.length) {
           standingsCache[league] = { data: apiRows, timestamp: Date.now() };
-          console.log(`   ✅ Football standings from API-Sports (${apiRows.length} teams)`);
+          console.log(`   ✅ Football standings from football-data.org (${apiRows.length} teams)`);
           return res.json(apiRows);
         }
       } catch (apiErr) {
-        console.warn(`   ⚠️ Football standings API failed (${apiErr.message})`);
+        console.warn(`   ⚠️ Football standings failed (${apiErr.message})`);
       }
     }
 
-    // Standings use API-Sports only — Gemini is not used for data feeds
-    console.warn(`   ℹ️ Standings for ${league}: no API-Sports table configured yet`);
+    console.warn(`   ℹ️ Standings for ${league}: no table configured for this provider`);
     return res.json([]);
   } catch (err) {
     console.warn(`   ⚠️ Standings fetch failed for ${league}. Reason:`, err.message);
@@ -4861,8 +4919,9 @@ httpServer.listen(PORT, () => {
   console.log(`   WebSocket: ws://localhost:${PORT}\n`);
 
   console.log('   API Key Status:');
-  console.log(`   ${hasApisportsCredentials ? '✅' : '❌'} API-Sports:      ${hasApisports ? 'APISPORTS_KEY' : (hasRapidAPI ? 'RAPIDAPI_KEY' : 'Missing — set APISPORTS_KEY on Render')}`);
-  console.log(`   ${APISPORTS_SPORT_IDS.length} sports via API-Sports · cricket via CricAPI`);
+  console.log(`   ${hasFootballData ? '✅' : '❌'} Football-Data:   ${hasFootballData ? 'FOOTBALL_DATA_KEY' : 'Missing — set FOOTBALL_DATA_KEY on Render'}`);
+  console.log(`   ✅ TheSportsDB:       ${THESPORTSDB_API_KEY === '123' ? 'key 123 (public test)' : 'custom key'} · ${THESPORTSDB_SPORT_IDS.length} sports`);
+  console.log(`   ${hasCricAPI ? '✅' : '❌'} CricAPI:           ${hasCricAPI ? 'Configured' : 'Missing — set CRICAPI_KEY for cricket'}`);
   console.log(`   ${hasOpenAI ? '✅' : '❌'} OpenAI:          ${hasOpenAI ? 'Configured' : 'Missing'}`);
   console.log(`   ${hasGemini ? '✅' : '❌'} Gemini:          ${hasGemini ? 'Configured' : 'Missing (REQUIRED for AI Scores)'}`);
   const dbLabel = useDatabase ? 'Connected' : process.env.MONGODB_URI ? (mongoConnectionError ? 'Failed (in-memory fallback)' : 'Connecting…') : 'Not configured (in-memory)';

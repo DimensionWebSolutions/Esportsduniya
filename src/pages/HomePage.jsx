@@ -112,7 +112,7 @@ export default function HomePage() {
 
       {data?.meta?.error && !/gemini|429|quota/i.test(data.meta.error) && (
         <div className="mb-6 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
-          Some score feeds are unavailable from API-Sports: {data.meta.error}
+          Some score feeds are unavailable: {data.meta.error}
           {data.meta.stale && ' Showing cached scores.'}
         </div>
       )}
@@ -145,9 +145,19 @@ export default function HomePage() {
         ) : prioritized.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted">
             <p>No {activeSport === 'all' ? '' : `${activeSport} `}matches right now.</p>
-            {activeSport !== 'all' && activeSport !== 'cricket' && (
+            {activeSport !== 'all' && activeSport === 'football' && (
               <p className="mx-auto mt-3 max-w-md text-sm">
-                Live {activeSport} scores use API-Sports. Ensure <code className="text-foreground">APISPORTS_KEY</code> is set on the server.
+                Football scores use <code className="text-foreground">football-data.org</code>. Set <code className="text-foreground">FOOTBALL_DATA_KEY</code> on the server.
+              </p>
+            )}
+            {activeSport !== 'all' && activeSport === 'cricket' && (
+              <p className="mx-auto mt-3 max-w-md text-sm">
+                Cricket scores use CricAPI. Set <code className="text-foreground">CRICAPI_KEY</code> on the server.
+              </p>
+            )}
+            {activeSport !== 'all' && !['football', 'cricket'].includes(activeSport) && (
+              <p className="mx-auto mt-3 max-w-md text-sm">
+                {activeSport} scores use TheSportsDB (free plan). Coverage is limited to a few events per day.
               </p>
             )}
           </div>

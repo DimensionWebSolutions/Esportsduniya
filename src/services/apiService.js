@@ -15,7 +15,7 @@ export async function fetchStandings(league) {
    ESPORTSDUNIYA — API Service Layer
    ============================================
    Fetches from the backend proxy (/api/*).
-   PRIMARY: API-Sports (all sports) + CricAPI (cricket)
+   PRIMARY: football-data.org (football) + TheSportsDB (other sports) + CricAPI (cricket)
    FALLBACK: Last-known-good server snapshot
    AI (Gemini): Optional — match commentary/momentum only, NOT live scores
    ============================================ */
@@ -79,12 +79,12 @@ export async function checkApiHealth() {
         const data = await res.json();
         apiAvailable = data.status === 'ok';
         aiScoresAvailable = data.apis?.aiScores === 'configured';
-        rapidApiAvailable = data.apis?.sports === 'configured';
+        rapidApiAvailable = data.apis?.football === 'configured';
         cricApiAvailable = data.apis?.cricapi === 'configured';
         console.log('🔌 API Server:', apiAvailable ? 'Connected' : 'Unavailable');
         console.log('   🏏 CricAPI:', cricApiAvailable ? 'Enabled' : 'Not configured');
-        console.log('   ⚽ API-Football:', rapidApiAvailable ? 'Enabled' : 'Not configured');
-        console.log('   🔍 AI Scores:', aiScoresAvailable ? 'Enabled (NBA/Tennis/F1)' : 'Not configured');
+        console.log('   ⚽ Football-Data:', rapidApiAvailable ? 'Enabled' : 'Not configured');
+        console.log('   🏟️ TheSportsDB: free v1 (server-side)');
         return data;
     } catch (err) {
         apiAvailable = false;
@@ -243,6 +243,12 @@ async function fetchInternal(endpoint) {
     return data.response || data.matches || [];
 }
 
+function adoptMatches(items, normalizer) {
+    if (!Array.isArray(items) || !items.length) return [];
+    if (items[0]?.teamA && items[0]?.teamB) return items;
+    return items.map(normalizer);
+}
+
 function sanitizeScoreError(err) {
     if (!err) return null;
     if (/gemini|429|quota|generativelanguage|ai-search/i.test(String(err))) return null;
@@ -251,7 +257,7 @@ function sanitizeScoreError(err) {
 
 /**
  * Fetch live matches via unified backend endpoint.
- * All sports: API-Sports (APISPORTS_KEY) + CricAPI for cricket. Gemini is NOT used for scores.
+ * All sports: football-data.org (football) + TheSportsDB (others) + CricAPI (cricket).
  */
 export async function fetchLiveMatches(sport = 'all', options = {}) {
     if (apiAvailable === null) {
@@ -282,7 +288,7 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
     };
 
     if (!res.ok && matches.length === 0) {
-        const msg = sanitizeScoreError(data.error) || 'No live scores available. Check APISPORTS_KEY on the server.';
+        const msg = sanitizeScoreError(data.error) || 'No live scores available. Check FOOTBALL_DATA_KEY, CRICAPI_KEY, or TheSportsDB on the server.';
         throw new Error(msg);
     }
 
@@ -304,27 +310,27 @@ export async function fetchUpcomingMatches(sport) {
     try {
         if (sport === 'all' || sport === 'football') {
             const data = await fetchInternal('/api/sports/football/upcoming');
-            if (Array.isArray(data)) results.push(...data.map(normalizeFootballMatch));
+            results.push(...adoptMatches(data, normalizeFootballMatch));
         }
 
         if (sport === 'all' || sport === 'nba') {
             const data = await fetchInternal('/api/sports/nba/upcoming');
-            if (Array.isArray(data)) results.push(...data.map(normalizeNBAMatch));
+            results.push(...adoptMatches(data, normalizeNBAMatch));
         }
 
         if (sport === 'all' || sport === 'tennis') {
             const data = await fetchInternal('/api/sports/tennis/upcoming');
-            if (Array.isArray(data)) results.push(...data.map(normalizeTennisMatch));
+            results.push(...adoptMatches(data, normalizeTennisMatch));
         }
 
         if (sport === 'all' || sport === 'f1') {
             const data = await fetchInternal('/api/sports/f1/upcoming');
-            if (Array.isArray(data)) results.push(...data.map(normalizeF1Race));
+            results.push(...adoptMatches(data, normalizeF1Race));
         }
 
         if (sport === 'all' || sport === 'cricket') {
             const data = await fetchInternal('/api/sports/cricket/upcoming');
-            if (Array.isArray(data)) results.push(...data.map(normalizeCricketMatch));
+            results.push(...adoptMatches(data, normalizeCricketMatch));
         }
     } catch (err) {
         console.warn('[apiService] Upcoming matches fetch failed:', err.message);

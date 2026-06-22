@@ -1,7 +1,7 @@
 /** Map legacy page ids to React Router paths */
-import { APISPORTS_SPORT_IDS } from '../../lib/sports-registry.js';
+import { LIVE_SPORT_IDS } from '../../lib/sports-registry.js';
 
-const SPORT_IDS = ['cricket', ...APISPORTS_SPORT_IDS];
+const SPORT_IDS = LIVE_SPORT_IDS;
 
 export function pageIdToPath(pageId) {
   if (!pageId || pageId === 'dashboard') return '/';
