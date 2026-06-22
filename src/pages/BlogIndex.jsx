@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@/config/apiBase';
 import '../styles/blog.css';
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const CATEGORIES = ['all', 'cricket', 'football', 'nba', 'tennis', 'f1', 'general'];
 
@@ -15,46 +14,46 @@ function formatDate(iso) {
   });
 }
 
-function ArticleDetail({ slug, onBack }) {
-  const [article, setArticle] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+function ArticleDetail({ article, onBack }) {
+  if (!article) return null;
 
-  useEffect(() => {
-    setLoading(true);
-    fetch(`${API_BASE}/api/blog/${encodeURIComponent(slug)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) { setError(data.error); } else { setArticle(data); }
-      })
-      .catch(() => setError('Failed to load article.'))
-      .finally(() => setLoading(false));
-  }, [slug]);
-
-  if (loading) return (
-    <div className="blog-article-page">
-      <div className="blog-loading">
-        <div className="blog-loading-spinner" />
-        <p>Loading article…</p>
+  if (article.isExternal && article.sourceUrl) {
+    return (
+      <div className="blog-article-page">
+        <button className="blog-article-back" onClick={onBack}>← Back to News</button>
+        <div className="blog-article-category">{CATEGORY_ICONS[article.category] || '📰'} {article.category}</div>
+        <h1 className="blog-article-title">{article.title}</h1>
+        <div className="blog-article-meta">
+          {article.sourceName && <strong>{article.sourceName}</strong>}
+          {article.sourceName && <span className="dot">·</span>}
+          <span>{formatDate(article.publishedAt)}</span>
+        </div>
+        {article.imageUrl && (
+          <img src={article.imageUrl} alt="" className="blog-article-hero-img" style={{ width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 12, margin: '1.5rem 0' }} />
+        )}
+        <div
+          className="blog-article-content"
+          dangerouslySetInnerHTML={{ __html: article.contentHtml }}
+        />
+        <div className="blog-cta-box" style={{ marginTop: '2rem' }}>
+          <h3>Read the full story</h3>
+          <p>This headline is from {article.sourceName || 'the publisher'}.</p>
+          <a
+            className="blog-cta-btn"
+            href={article.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open article →
+          </a>
+        </div>
       </div>
-    </div>
-  );
-
-  if (error || !article) return (
-    <div className="blog-article-page">
-      <div className="blog-empty">
-        <div className="blog-empty-icon">😕</div>
-        <p>{error || 'Article not found.'}</p>
-        <button className="blog-article-back" onClick={onBack} style={{ marginTop: '1.5rem' }}>
-          ← Back to Blog
-        </button>
-      </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div className="blog-article-page">
-      <button className="blog-article-back" onClick={onBack}>← Back to Blog</button>
+      <button className="blog-article-back" onClick={onBack}>← Back to News</button>
       <div className="blog-article-category">{CATEGORY_ICONS[article.category] || '📰'} {article.category}</div>
       <h1 className="blog-article-title">{article.title}</h1>
       <div className="blog-article-meta">
@@ -63,30 +62,16 @@ function ArticleDetail({ slug, onBack }) {
         <span>{formatDate(article.publishedAt)}</span>
         <span className="dot">·</span>
         <span>{article.readTime || 5} min read</span>
-        <span className="dot">·</span>
-        <span>{(article.wordCount || 0).toLocaleString()} words</span>
       </div>
-
       <div
         className="blog-article-content"
         dangerouslySetInnerHTML={{ __html: article.contentHtml }}
       />
-
       <div className="blog-cta-box" style={{ marginTop: '2.5rem' }}>
         <h3>Follow Live Scores on Esportsduniya</h3>
         <p>Get real-time scores, AI predictions, and fan insights — all in one place</p>
-        <a className="blog-cta-btn" href="/">
-          Watch Live Scores →
-        </a>
+        <a className="blog-cta-btn" href="/">Watch Live Scores →</a>
       </div>
-
-      {(article.keywords || []).length > 0 && (
-        <div className="blog-keywords">
-          {article.keywords.map(k => (
-            <span key={k} className="blog-keyword-tag">{k}</span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -95,27 +80,40 @@ export default function BlogIndex() {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
-  const [selectedSlug, setSelectedSlug] = useState(null);
+  const [selectedArticle, setSelectedArticle] = useState(null);
 
   useEffect(() => {
     const cat = activeCategory === 'all' ? '' : `?category=${activeCategory}`;
     setLoading(true);
-    fetch(`${API_BASE}/api/blog${cat}`)
+    fetch(apiUrl(`/api/blog${cat}`))
       .then(r => r.json())
       .then(data => setArticles(Array.isArray(data) ? data : []))
       .catch(() => setArticles([]))
       .finally(() => setLoading(false));
   }, [activeCategory]);
 
-  if (selectedSlug) {
-    return <ArticleDetail slug={selectedSlug} onBack={() => setSelectedSlug(null)} />;
+  const openArticle = (article) => {
+    if (article.isExternal && article.sourceUrl) {
+      window.open(article.sourceUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    fetch(apiUrl(`/api/blog/${encodeURIComponent(article.slug)}`))
+      .then(r => r.json())
+      .then(data => {
+        if (!data.error) setSelectedArticle(data);
+      })
+      .catch(() => {});
+  };
+
+  if (selectedArticle) {
+    return <ArticleDetail article={selectedArticle} onBack={() => setSelectedArticle(null)} />;
   }
 
   return (
     <div className="blog-page">
       <div className="blog-page-header">
-        <h1>Sports Blog</h1>
-        <p>AI-powered news, match previews, and analysis — updated daily</p>
+        <h1>Sports News</h1>
+        <p>Latest headlines from cricket, football, NBA, tennis, F1, and more — updated throughout the day</p>
       </div>
 
       <div className="blog-filter-tabs">
@@ -133,14 +131,14 @@ export default function BlogIndex() {
       {loading ? (
         <div className="blog-loading">
           <div className="blog-loading-spinner" />
-          <p>Loading articles…</p>
+          <p>Loading headlines…</p>
         </div>
       ) : articles.length === 0 ? (
         <div className="blog-empty">
           <div className="blog-empty-icon">📭</div>
-          <p>No articles yet — check back soon!</p>
+          <p>No headlines yet — check back soon!</p>
           <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', opacity: 0.5 }}>
-            Articles are auto-generated every 6 hours.
+            Headlines refresh automatically every 30 minutes.
           </p>
         </div>
       ) : (
@@ -149,18 +147,28 @@ export default function BlogIndex() {
             <button
               key={a.slug}
               className="blog-card"
-              onClick={() => setSelectedSlug(a.slug)}
+              onClick={() => openArticle(a)}
               style={{ textAlign: 'left', width: '100%', font: 'inherit', cursor: 'pointer' }}
             >
+              {a.imageUrl && (
+                <img
+                  src={a.imageUrl}
+                  alt=""
+                  style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, marginBottom: 12 }}
+                  loading="lazy"
+                />
+              )}
               <div className="blog-card-category">
                 {CATEGORY_ICONS[a.category] || '📰'} {a.category}
+                {a.sourceName && (
+                  <span style={{ marginLeft: 8, opacity: 0.7 }}>· {a.sourceName}</span>
+                )}
               </div>
               <div className="blog-card-title">{a.title}</div>
               <div className="blog-card-desc">{a.metaDescription}</div>
               <div className="blog-card-meta">
                 <span>{formatDate(a.publishedAt)}</span>
-                <span>{a.readTime || 5} min read</span>
-                <span>{(a.wordCount || 0).toLocaleString()} words</span>
+                {a.isExternal && <span>External</span>}
               </div>
             </button>
           ))}

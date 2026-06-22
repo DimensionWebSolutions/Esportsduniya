@@ -75,7 +75,7 @@ export default function AdminPanel() {
       title="Admin"
       description="Platform overview and user management."
       action={
-        <Button size="sm" onClick={() => action('/api/blog/generate')}>Generate blog</Button>
+        <Button size="sm" onClick={() => action('/api/blog/generate')}>Refresh news</Button>
       }
     >
       {loading ? <Skeleton className="h-64" /> : (

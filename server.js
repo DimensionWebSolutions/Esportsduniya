@@ -38,6 +38,7 @@ import {
   isTheSportsDbSport,
 } from './lib/thesportsdb.js';
 import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS } from './lib/sports-registry.js';
+import { fetchAllSportsNews } from './lib/news-feed.js';
 
 config(); // Load .env
 
@@ -353,6 +354,9 @@ const articleSchema = new mongoose.Schema({
   readTime:        { type: Number, default: 5 },
   publishedAt:     { type: Date, default: Date.now },
   imageUrl:        { type: String, default: '' },
+  sourceUrl:       { type: String, default: '' },
+  sourceName:      { type: String, default: '' },
+  isExternal:      { type: Boolean, default: false },
 }, { timestamps: true });
 
 const Article = mongoose.models.Article || mongoose.model('Article', articleSchema);
@@ -1331,6 +1335,8 @@ const THESPORTSDB_API_KEY = process.env.THESPORTSDB_API_KEY || '123';
 const CRICAPI_KEY = process.env.CRICAPI_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const NEWSAPI_KEY = process.env.NEWSAPI_KEY;
+const ENABLE_AI_BLOG = process.env.ENABLE_AI_BLOG === 'true' || process.env.ENABLE_AI_BLOG === '1';
 
 function isKeySet(key, placeholder) {
   return key && key !== placeholder && key.length > 10;
@@ -4380,7 +4386,7 @@ Return a single JSON object — no markdown, no extra text:
   }
 }
 
-// Step 3 — Orchestrate: discover topics → write 3 new articles
+// Step 3 — Orchestrate: discover topics → write 3 new articles (optional; ENABLE_AI_BLOG)
 async function generateDailyArticles() {
   if (!hasGemini) {
     console.log('   ℹ️  Blog: Skipping article generation — GEMINI_API_KEY not set');
@@ -4419,11 +4425,58 @@ async function generateDailyArticles() {
   console.log(`   📰 Blog: ${written} article(s) published this run`);
 }
 
-// Cron: run at 6 AM, 12 PM, 6 PM UTC every day
-cron.schedule('0 6,12,18 * * *', async () => {
-  console.log('   ⏰ Blog Cron: Starting automated article generation');
-  await generateDailyArticles();
+/** Ingest real sports headlines from RSS / optional NewsAPI into Article store */
+async function fetchAndCacheSportsNews() {
+  console.log('   📰 News: Fetching sports headlines...');
+  try {
+    const items = await fetchAllSportsNews({ newsApiKey: NEWSAPI_KEY });
+    if (!items.length) {
+      console.log('   ⚠️  News: No headlines returned from feeds');
+      return 0;
+    }
+
+    let saved = 0;
+    for (const item of items) {
+      const result = await dbSaveArticle(item);
+      if (result) saved++;
+    }
+    console.log(`   ✅ News: Cached ${saved} new headline(s) (${items.length} fetched)`);
+    return saved;
+  } catch (err) {
+    console.error('   ❌ News ingest failed:', err.message);
+    return 0;
+  }
+}
+
+function blogListFields(a) {
+  return {
+    slug: a.slug,
+    title: a.title,
+    metaDescription: a.metaDescription,
+    category: a.category,
+    keywords: a.keywords,
+    wordCount: a.wordCount,
+    readTime: a.readTime,
+    publishedAt: a.publishedAt,
+    imageUrl: a.imageUrl || '',
+    sourceUrl: a.sourceUrl || '',
+    sourceName: a.sourceName || '',
+    isExternal: Boolean(a.isExternal),
+  };
+}
+
+// RSS news refresh every 30 minutes
+cron.schedule('*/30 * * * *', async () => {
+  console.log('   ⏰ News Cron: Refreshing sports headlines');
+  await fetchAndCacheSportsNews();
 });
+
+if (ENABLE_AI_BLOG) {
+  cron.schedule('0 6,12,18 * * *', async () => {
+    console.log('   ⏰ Blog Cron: Starting AI article generation');
+    await generateDailyArticles();
+  });
+}
 
 cron.schedule('*/10 * * * *', () => {
   const url = `http://localhost:${PORT}/api/health`;
@@ -4471,9 +4524,12 @@ cron.schedule('*/15 * * * *', async () => {
   }
 });
 
-// Generate articles on startup (after a short delay so the server is ready)
+// Refresh news on startup (after a short delay so the server is ready)
 setTimeout(() => {
-  generateDailyArticles().catch(err => console.error('   ❌ Blog startup generation failed:', err.message));
+  fetchAndCacheSportsNews().catch(err => console.error('   ❌ News startup fetch failed:', err.message));
+  if (ENABLE_AI_BLOG) {
+    generateDailyArticles().catch(err => console.error('   ❌ Blog startup generation failed:', err.message));
+  }
 }, 15000);
 
 // ── Blog CSS (inlined into SSR pages) ──
@@ -4534,11 +4590,7 @@ app.get('/api/blog', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 20, 50);
     const category = req.query.category || null;
     const list = await dbGetArticles(limit, category);
-    res.json(list.map(a => ({
-      slug: a.slug, title: a.title, metaDescription: a.metaDescription,
-      category: a.category, keywords: a.keywords, wordCount: a.wordCount,
-      readTime: a.readTime, publishedAt: a.publishedAt,
-    })));
+    res.json(list.map(blogListFields));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch articles' });
   }
@@ -4562,18 +4614,19 @@ app.get('/blog', async (req, res) => {
     const cardsHtml = list.length
       ? list.map(a => {
           const pubDate = new Date(a.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-          return `<a class="blog-card" href="/blog/${escapeHtml(a.slug)}">
-            <div class="blog-card-cat">${escapeHtml(a.category)}</div>
+          const href = a.isExternal && a.sourceUrl ? escapeHtml(a.sourceUrl) : `/blog/${escapeHtml(a.slug)}`;
+          const sourceLabel = a.sourceName ? ` · ${escapeHtml(a.sourceName)}` : '';
+          const extAttrs = a.isExternal && a.sourceUrl ? ' target="_blank" rel="noopener noreferrer"' : '';
+          return `<a class="blog-card" href="${href}"${extAttrs}>
+            <div class="blog-card-cat">${escapeHtml(a.category)}${sourceLabel}</div>
             <div class="blog-card-title">${escapeHtml(a.title)}</div>
             <div class="blog-card-desc">${escapeHtml(a.metaDescription)}</div>
             <div class="blog-card-meta">
               <span>${pubDate}</span>
-              <span>${a.readTime || 5} min read</span>
-              <span>${(a.wordCount || 0).toLocaleString()} words</span>
             </div>
           </a>`;
         }).join('\n')
-      : '<p style="color:#666;text-align:center;padding:3rem">Articles are being generated — check back soon!</p>';
+      : '<p style="color:#666;text-align:center;padding:3rem">Headlines are loading — check back soon!</p>';
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -4593,7 +4646,7 @@ app.get('/blog', async (req, res) => {
 <meta name="twitter:title" content="Sports Blog — Esportsduniya" />
 <meta name="twitter:description" content="Latest sports news and match previews." />
 <meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png" />
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"Esportsduniya Sports Blog","url":"https://www.esportsduniya.in/blog","description":"AI-generated sports news, match previews, and analysis","publisher":{"@type":"Organization","name":"Esportsduniya","url":"https://www.esportsduniya.in","logo":{"@type":"ImageObject","url":"https://www.esportsduniya.in/og-cover.png"}}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"Esportsduniya Sports News","url":"https://www.esportsduniya.in/blog","description":"Latest sports headlines and news","publisher":{"@type":"Organization","name":"Esportsduniya","url":"https://www.esportsduniya.in","logo":{"@type":"ImageObject","url":"https://www.esportsduniya.in/og-cover.png"}}}</script>
 <style>${BLOG_CSS}</style>
 </head>
 <body>
@@ -4608,8 +4661,8 @@ app.get('/blog', async (req, res) => {
 <main>
   <div class="blog-listing-wrap">
     <div class="blog-listing-header">
-      <h1>Sports Blog</h1>
-      <p>AI-powered sports news, match previews, player analysis, and tournament updates — updated daily</p>
+      <h1>Sports News</h1>
+      <p>Latest headlines from cricket, football, NBA, tennis, F1, and more — updated throughout the day</p>
     </div>
     <div class="blog-grid">${cardsHtml}</div>
   </div>
@@ -4713,7 +4766,7 @@ app.get('/blog/:slug', async (req, res) => {
       <div class="blog-category-badge">${escapeHtml(article.category)}</div>
       <h1 class="blog-title">${escapeHtml(article.title)}</h1>
       <div class="blog-meta">
-        <strong>Esportsduniya</strong>
+        <strong>${escapeHtml(article.isExternal && article.sourceName ? article.sourceName : 'Esportsduniya')}</strong>
         <span class="dot">·</span>
         <span>${pubDate}</span>
         <span class="dot">·</span>
@@ -4726,6 +4779,7 @@ app.get('/blog/:slug', async (req, res) => {
   <div class="blog-content-wrap">
     <article class="blog-content">
       ${sanitizeArticleHtml(article.contentHtml)}
+      ${article.isExternal && article.sourceUrl ? `<p style="margin-top:2rem"><a href="${escapeHtml(article.sourceUrl)}" target="_blank" rel="noopener noreferrer" class="blog-cta-btn" style="display:inline-block;padding:12px 24px;background:#1ee6a7;color:#0a0a0f;border-radius:8px;font-weight:600;text-decoration:none">Read full story on ${escapeHtml(article.sourceName || 'publisher')} →</a></p>` : ''}
       <div class="blog-cta-box">
         <h3>Follow Live Scores on Esportsduniya</h3>
         <p>Get real-time scores, AI predictions, and fan insights — all in one place</p>
@@ -4875,10 +4929,13 @@ app.post('/api/admin/user/:username/toggle-admin', verifyToken, requireAdmin, as
   }
 });
 
-// Admin: manually trigger article generation
+// Admin: manually trigger news refresh (+ optional AI blog if enabled)
 app.post('/api/blog/generate', verifyToken, requireAdmin, async (req, res) => {
-  res.json({ message: 'Article generation started in background' });
-  generateDailyArticles().catch(err => console.error('Manual blog gen error:', err.message));
+  res.json({ message: 'News refresh started in background' });
+  fetchAndCacheSportsNews().catch(err => console.error('Manual news fetch error:', err.message));
+  if (ENABLE_AI_BLOG) {
+    generateDailyArticles().catch(err => console.error('Manual blog gen error:', err.message));
+  }
 });
 
 // ============================================
@@ -4923,7 +4980,9 @@ httpServer.listen(PORT, () => {
   console.log(`   ✅ TheSportsDB:       ${THESPORTSDB_API_KEY === '123' ? 'key 123 (public test)' : 'custom key'} · ${THESPORTSDB_SPORT_IDS.length} sports`);
   console.log(`   ${hasCricAPI ? '✅' : '❌'} CricAPI:           ${hasCricAPI ? 'Configured' : 'Missing — set CRICAPI_KEY for cricket'}`);
   console.log(`   ${hasOpenAI ? '✅' : '❌'} OpenAI:          ${hasOpenAI ? 'Configured' : 'Missing'}`);
-  console.log(`   ${hasGemini ? '✅' : '❌'} Gemini:          ${hasGemini ? 'Configured' : 'Missing (REQUIRED for AI Scores)'}`);
+  console.log(`   ${hasGemini ? '✅' : '❌'} Gemini:          ${hasGemini ? 'Configured' : 'Missing'}`);
+  console.log(`   ${NEWSAPI_KEY ? '✅' : 'ℹ️ '} NewsAPI:          ${NEWSAPI_KEY ? 'Configured (optional boost)' : 'Not set — RSS-only feed'}`);
+  console.log(`   📰 Sports headlines: RSS every 30 min${ENABLE_AI_BLOG ? ' · AI blog enabled' : ''}`);
   const dbLabel = useDatabase ? 'Connected' : process.env.MONGODB_URI ? (mongoConnectionError ? 'Failed (in-memory fallback)' : 'Connecting…') : 'Not configured (in-memory)';
   console.log(`   ${useDatabase ? '✅' : process.env.MONGODB_URI ? '⚠️ ' : 'ℹ️ '} MongoDB:         ${dbLabel}`);
   console.log(`\n   ${hasGemini ? '🔍 AI-Powered Live Scores: ENABLED (60s cache)' : '⚠️  AI-Powered Live Scores: DISABLED — Set GEMINI_API_KEY in .env'}\n`);
