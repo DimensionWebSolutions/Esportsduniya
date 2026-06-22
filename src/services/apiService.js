@@ -50,7 +50,21 @@ function timeoutSignal(ms) {
 }
 
 export function getLiveScoresMeta() {
-    return { ...lastLiveMeta };
+    return {
+        fetchedAt: lastLiveMeta.fetchedAt,
+        stale: lastLiveMeta.stale,
+        matchCount: lastLiveMeta.matchCount,
+        error: userFacingScoreError(lastLiveMeta.error),
+    };
+}
+
+function userFacingScoreError(err) {
+    if (!err) return null;
+    if (/gemini|429|quota|generativelanguage|ai-search/i.test(String(err))) return null;
+    if (/key not configured|apisports|football.data|cricapi|thesportsdb|unavailable/i.test(String(err))) {
+        return 'scores_unavailable';
+    }
+    return 'scores_unavailable';
 }
 
 export function getAuthHeaders() {
@@ -252,7 +266,8 @@ function adoptMatches(items, normalizer) {
 function sanitizeScoreError(err) {
     if (!err) return null;
     if (/gemini|429|quota|generativelanguage|ai-search/i.test(String(err))) return null;
-    return err;
+    if (/key not configured|apisports|football.data|cricapi|thesportsdb/i.test(String(err))) return null;
+    return null;
 }
 
 /**
@@ -288,7 +303,7 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
     };
 
     if (!res.ok && matches.length === 0) {
-        const msg = sanitizeScoreError(data.error) || 'No live scores available. Check FOOTBALL_DATA_KEY, CRICAPI_KEY, or TheSportsDB on the server.';
+        const msg = sanitizeScoreError(data.error) || 'Could not load live scores. Please try again.';
         throw new Error(msg);
     }
 

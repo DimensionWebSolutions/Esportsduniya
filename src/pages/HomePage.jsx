@@ -105,15 +105,14 @@ export default function HomePage() {
         {data?.meta?.fetchedAt && (
           <span>· Updated {new Date(data.meta.fetchedAt).toLocaleTimeString()}</span>
         )}
-        {data?.meta?.source && (
-          <span className="text-xs">· {data.meta.source}{data.meta.stale ? ' (cached)' : ''}</span>
+        {data?.meta?.stale && (
+          <span className="text-xs">· Cached scores</span>
         )}
       </div>
 
-      {data?.meta?.error && !/gemini|429|quota/i.test(data.meta.error) && (
+      {data?.meta?.error && (
         <div className="mb-6 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
-          Some score feeds are unavailable: {data.meta.error}
-          {data.meta.stale && ' Showing cached scores.'}
+          Some scores are temporarily unavailable. {data.meta.stale ? 'Showing cached scores.' : 'Try refreshing in a moment.'}
         </div>
       )}
 
@@ -145,21 +144,7 @@ export default function HomePage() {
         ) : prioritized.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted">
             <p>No {activeSport === 'all' ? '' : `${activeSport} `}matches right now.</p>
-            {activeSport !== 'all' && activeSport === 'football' && (
-              <p className="mx-auto mt-3 max-w-md text-sm">
-                Football scores use <code className="text-foreground">football-data.org</code>. Set <code className="text-foreground">FOOTBALL_DATA_KEY</code> on the server.
-              </p>
-            )}
-            {activeSport !== 'all' && activeSport === 'cricket' && (
-              <p className="mx-auto mt-3 max-w-md text-sm">
-                Cricket scores use CricAPI. Set <code className="text-foreground">CRICAPI_KEY</code> on the server.
-              </p>
-            )}
-            {activeSport !== 'all' && !['football', 'cricket'].includes(activeSport) && (
-              <p className="mx-auto mt-3 max-w-md text-sm">
-                {activeSport} scores use TheSportsDB (free plan). Coverage is limited to a few events per day.
-              </p>
-            )}
+            <p className="mx-auto mt-3 max-w-md text-sm">Check back soon — schedules update throughout the day.</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
