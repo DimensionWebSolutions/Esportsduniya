@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppLayout from '@/layouts/AppLayout.jsx';
 import HomePage from '@/pages/HomePage.jsx';
 import { trackPageView } from '@/services/analytics.js';
+import { registerServiceWorker, startReminderChecker } from '@/components/NotificationHelper.js';
 import { Skeleton } from '@/ui/section';
 
 const MatchCommandCenter = lazy(() => import('@/pages/MatchCommandCenter.jsx'));
@@ -17,6 +18,7 @@ const LeaderboardPage = lazy(() => import('@/pages/LeaderboardPage.jsx'));
 const CrowdPulsePage = lazy(() => import('@/pages/CrowdPulsePage.jsx'));
 const TimeMachinePage = lazy(() => import('@/pages/TimeMachinePage.jsx'));
 const FifaPage = lazy(() => import('@/pages/FifaPage.jsx'));
+const TopicalHubPage = lazy(() => import('@/pages/TopicalHubPage.jsx'));
 
 const PrivacyPolicy = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.TermsOfService })));
@@ -56,6 +58,11 @@ export default function App() {
     trackPageView(location.pathname, document.title);
   }, [location.pathname]);
 
+  useEffect(() => {
+    registerServiceWorker();
+    startReminderChecker();
+  }, []);
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
@@ -81,6 +88,8 @@ export default function App() {
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify-email" element={<VerifyEmailPage />} />
           <Route path="pricing" element={<PricingPage />} />
+          <Route path="cricket/ipl-2026" element={<TopicalHubPage hubKey="ipl-2026" />} />
+          <Route path="football/premier-league" element={<TopicalHubPage hubKey="premier-league" />} />
           <Route path="dashboard" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

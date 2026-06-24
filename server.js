@@ -37,9 +37,17 @@ import {
   fetchTheSportsDbUpcoming,
   isTheSportsDbSport,
 } from './lib/thesportsdb.js';
-import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS } from './lib/sports-registry.js';
+import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS, SPORT_BY_ID } from './lib/sports-registry.js';
 import { fetchAllSportsNews, newsItemsToHighlights } from './lib/news-feed.js';
 import { fetchStandingsForLeague, STANDINGS_SUPPORTED } from './lib/standings-feed.js';
+import { SITE_URL, STATIC_SITEMAP_PATHS, TOPICAL_HUBS } from './lib/seo-config.js';
+import {
+  renderSportHubPage,
+  renderMatchPage,
+  renderTopicalHubPage,
+  buildSitemapXml,
+  buildSitemapIndex,
+} from './lib/seo-render.js';
 
 config(); // Load .env
 
@@ -81,7 +89,7 @@ app.use(helmet({
 // ── P0-6: CORS allowlist ──
 const ALLOWED_ORIGINS = [
   'https://esportsduniya.in',
-  'https://www.esportsduniya.in',
+  'https://esportsduniya.in',
   'https://esportsduniya.pages.dev',
 ];
 if (!IS_PROD) ALLOWED_ORIGINS.push('http://localhost:5173', 'http://localhost:3001', 'http://127.0.0.1:5173');
@@ -93,7 +101,13 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '100kb' }));
+// Stripe webhook needs raw body — must run before express.json()
+app.use('/api/premium/webhook', express.raw({ type: 'application/json' }));
+
+app.use((req, res, next) => {
+  if (req.originalUrl.startsWith('/api/premium/webhook')) return next();
+  express.json({ limit: '100kb' })(req, res, next);
+});
 
 // ── P0-3: Rate limiting ──
 const globalLimiter = rateLimit({
@@ -210,6 +224,23 @@ function optionalAuth(req, res, next) {
     } catch { /* ignore invalid token */ }
   }
   next();
+}
+
+async function requirePremium(req, res, next) {
+  const username = req.user?.username;
+  if (!username) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const user = await dbFindUser(username);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    const isPremium = user.isPremium && (!user.premiumExpiry || new Date(user.premiumExpiry) > new Date());
+    if (!isPremium) {
+      return res.status(403).json({ error: 'Pro subscription required.', upgrade: true });
+    }
+    req.premiumUser = user;
+    next();
+  } catch {
+    return res.status(500).json({ error: 'Could not verify premium status.' });
+  }
 }
 
 // ============================================
@@ -414,6 +445,11 @@ if (MONGODB_URI) {
     .catch(err => {
       useDatabase = false;
       mongoConnectionError = err.message;
+      if (IS_PROD) {
+        console.error('FATAL: MongoDB connection failed in production. Exiting.');
+        console.error('   ', err.message);
+        process.exit(1);
+      }
       console.warn('   ⚠️  MongoDB: Connection failed — falling back to in-memory store');
       console.warn('   ', err.message);
       if (/bad auth|authentication failed/i.test(err.message)) {
@@ -423,6 +459,10 @@ if (MONGODB_URI) {
 
   mongoose.connection.on('disconnected', () => {
     useDatabase = false;
+    if (IS_PROD) {
+      console.error('FATAL: MongoDB disconnected in production.');
+      return;
+    }
     console.warn('   ⚠️  MongoDB: Disconnected — using in-memory store until reconnected');
   });
   mongoose.connection.on('reconnected', () => {
@@ -430,7 +470,10 @@ if (MONGODB_URI) {
     mongoConnectionError = null;
     console.log('   ✅ MongoDB: Reconnected');
   });
-} else if (!process.env.MONGODB_URI) {
+} else if (IS_PROD) {
+  console.error('FATAL: MONGODB_URI must be set in production. Exiting.');
+  process.exit(1);
+} else {
   console.log('   ℹ️  MongoDB: No MONGODB_URI set — using in-memory store (data resets on restart)');
 }
 
@@ -1384,8 +1427,6 @@ app.get('/api/stats/public', async (req, res) => {
 // AGENT DISCOVERY ENDPOINTS (RFC 8288, RFC 9727, etc.)
 // ============================================
 
-const SITE_URL = 'https://esportsduniya.in';
-
 // Link response headers on homepage for agent discovery (RFC 8288)
 app.use((req, res, next) => {
   if (req.path === '/' || req.path === '/index.html') {
@@ -2147,6 +2188,23 @@ async function getRealSportLive(sport) {
   return null;
 }
 
+async function findMatchById(matchId) {
+  const id = String(matchId);
+  for (const sport of LIVE_SPORT_IDS) {
+    try {
+      const result = await getRealSportLive(sport);
+      const found = (result?.matches || []).find(m => String(m.id) === id);
+      if (found) return found;
+    } catch { /* try next sport */ }
+  }
+  for (const sport of LIVE_SPORT_IDS) {
+    const stale = getStaleSnapshot(sport);
+    const found = stale?.matches?.find(m => String(m.id) === id);
+    if (found) return found;
+  }
+  return null;
+}
+
 app.get('/api/sports/cricket/live', async (req, res) => {
   const result = await getRealSportLive('cricket');
   if (result.source === 'unavailable' && !result.matches.length) {
@@ -2185,7 +2243,7 @@ app.get('/api/sports/cricket/upcoming', async (req, res) => {
 // AI NARRATIVE ENDPOINTS
 // ============================================
 
-app.post('/api/ai/narrative', aiLimiter, async (req, res) => {
+app.post('/api/ai/narrative', aiLimiter, verifyToken, async (req, res) => {
   const { matchContext, tone } = req.body;
 
   const toneInstructions = {
@@ -2230,7 +2288,7 @@ IMPORTANT: Base your narrative ONLY on real data you found via internet search. 
   }
 });
 
-app.post('/api/ai/preview', aiLimiter, async (req, res) => {
+app.post('/api/ai/preview', aiLimiter, verifyToken, async (req, res) => {
   const { matchContext } = req.body;
 
   const prompt = `You are a professional sports form analyst for the Esportsduniya platform.
@@ -2277,7 +2335,7 @@ IMPORTANT: Keep all descriptions extremely brief and concise. The total length o
   }
 });
 
-app.post('/api/ai/momentum', aiLimiter, async (req, res) => {
+app.post('/api/ai/momentum', aiLimiter, verifyToken, requirePremium, async (req, res) => {
   const { matchContext, events } = req.body;
 
   const prompt = `You are a sports momentum analyst for the Esportsduniya platform.
@@ -2359,7 +2417,7 @@ RULES:
   }
 });
 
-app.post('/api/ai/social-sentiment', aiLimiter, async (req, res) => {
+app.post('/api/ai/social-sentiment', aiLimiter, verifyToken, async (req, res) => {
   const { matchContext } = req.body;
 
   const prompt = `You are a social media sentiment analyst for the Esportsduniya platform.
@@ -2659,7 +2717,7 @@ function normalizeBlogTopic(raw) {
   };
 }
 
-app.post('/api/ai/fifa-prediction', aiLimiter, async (req, res) => {
+app.post('/api/ai/fifa-prediction', aiLimiter, verifyToken, async (req, res) => {
   const { match, teamAStats, teamBStats } = req.body;
 
   if (!match || !teamAStats || !teamBStats) {
@@ -2717,7 +2775,7 @@ app.post('/api/ai/fifa-prediction', aiLimiter, async (req, res) => {
 });
 
 // ── AI Tactical Analysis ──
-app.post('/api/ai/tactics', aiLimiter, async (req, res) => {
+app.post('/api/ai/tactics', aiLimiter, verifyToken, requirePremium, async (req, res) => {
   const { matchContext } = req.body;
 
   const prompt = `You are a professional sports tactical analyst for Esportsduniya.
@@ -2782,7 +2840,7 @@ If you cannot find real-time tactical data for this specific match, base it on t
 });
 
 // ── AI Match Oracle (Contextual Q&A) ──
-app.post('/api/ai/oracle', aiLimiter, async (req, res) => {
+app.post('/api/ai/oracle', aiLimiter, verifyToken, requirePremium, async (req, res) => {
   const { matchContext, question, history } = req.body;
   if (typeof question === 'string' && question.length > 500) {
     return res.status(400).json({ error: 'Question too long (max 500 chars).' });
@@ -3253,7 +3311,11 @@ app.get('/api/sports/standings/:league', async (req, res) => {
   try {
     const footballClient = hasFootballData ? getFootballDataClient() : null;
     const tsdClient = getTheSportsDbClient();
-    const apiRows = await fetchStandingsForLeague(league, { footballClient, tsdClient });
+    const apiRows = await fetchStandingsForLeague(league, {
+      footballClient,
+      tsdClient,
+      cricapiKey: hasCricAPI ? CRICAPI_KEY : null,
+    });
     if (apiRows?.length) {
       standingsCache[league] = { data: apiRows, timestamp: Date.now() };
       console.log(`   ✅ ${league} standings (${apiRows.length} rows)`);
@@ -3928,7 +3990,7 @@ app.get('/api/og/:matchId', optionalAuth, (req, res) => {
   <title>${title}</title>
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
-  <meta property="og:image" content="https://www.esportsduniya.in/og-cover.png">
+  <meta property="og:image" content="https://esportsduniya.in/og-cover.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:url" content="${matchUrl}">
@@ -3936,7 +3998,7 @@ app.get('/api/og/:matchId', optionalAuth, (req, res) => {
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
-  <meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png">
+  <meta name="twitter:image" content="https://esportsduniya.in/og-cover.png">
   <meta http-equiv="refresh" content="0; url=${matchUrl}">
 </head>
 <body><p>Redirecting to match…</p></body>
@@ -3955,17 +4017,7 @@ app.get('/api/og/:matchId', optionalAuth, (req, res) => {
 app.get('/api/seo/match/:matchId', async (req, res) => {
   const matchId = sanitiseId(req.params.matchId);
   try {
-    const sportEndpoints = ['cricket', 'football', 'nba', 'tennis', 'f1'];
-    let matchData = null;
-
-    for (const sport of sportEndpoints) {
-      try {
-        const response = await fetch(`http://localhost:${PORT}/api/sports/live/${sport}`);
-        const data = await response.json();
-        const found = (data.matches || []).find(m => String(m.id) === matchId);
-        if (found) { matchData = found; break; }
-      } catch { continue; }
-    }
+    const matchData = await findMatchById(matchId);
 
     if (!matchData) {
       return res.status(404).json({ error: 'Match not found' });
@@ -3973,7 +4025,7 @@ app.get('/api/seo/match/:matchId', async (req, res) => {
 
     const title = `${escapeHtml(matchData.teamA?.name)} vs ${escapeHtml(matchData.teamB?.name)} - Live Score | Esportsduniya`;
     const description = `Live score, AI analysis, and predictions for ${escapeHtml(matchData.teamA?.name)} vs ${escapeHtml(matchData.teamB?.name)}. ${escapeHtml(matchData.league || '')}`;
-    const url = `https://esportsduniya.in/match/${matchId}`;
+    const url = `${SITE_URL}/match/${matchId}`;
 
     res.json({
       title,
@@ -3996,6 +4048,128 @@ app.get('/api/seo/match/:matchId', async (req, res) => {
 });
 
 // ============================================
+// SSR SPORT / MATCH PAGES (Google-indexable)
+// ============================================
+
+app.get('/sport/:sport', async (req, res) => {
+  const sport = String(req.params.sport || '').toLowerCase();
+  if (!SPORT_BY_ID[sport] || sport === 'all') {
+    return res.status(404).setHeader('Content-Type', 'text/html').send('Not found');
+  }
+  try {
+    const result = await getRealSportLive(sport);
+    const matches = result?.matches || [];
+    const html = renderSportHubPage(sport, matches);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    res.send(html);
+  } catch (err) {
+    console.error('SSR sport page error:', err.message);
+    res.status(500).send('Internal server error');
+  }
+});
+
+app.get('/match/:matchId', async (req, res) => {
+  const matchId = sanitiseId(req.params.matchId);
+  try {
+    const match = await findMatchById(matchId);
+    if (!match) {
+      res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(`<!DOCTYPE html><html lang="en-IN"><head><meta charset="UTF-8"><title>Match Not Found</title></head><body><p>Match not found.</p><a href="${SITE_URL}">Home</a></body></html>`);
+    }
+    const html = renderMatchPage(match);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    res.send(html);
+  } catch (err) {
+    console.error('SSR match page error:', err.message);
+    res.status(500).send('Internal server error');
+  }
+});
+
+app.get('/cricket/ipl-2026', async (req, res) => {
+  try {
+    const result = await getRealSportLive('cricket');
+    const matches = (result?.matches || []).filter(m => /ipl|premier league/i.test(m.league || m.name || ''));
+    const html = renderTopicalHubPage('cricket/ipl-2026', matches.length ? matches : result?.matches || []);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=300');
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Internal server error');
+  }
+});
+
+app.get('/football/premier-league', async (req, res) => {
+  try {
+    const result = await getRealSportLive('football');
+    const matches = (result?.matches || []).filter(m => /premier league|epl|pl/i.test(m.league || ''));
+    const html = renderTopicalHubPage('football/premier-league', matches.length ? matches : result?.matches || []);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=300');
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Internal server error');
+  }
+});
+
+async function collectActiveMatchUrls() {
+  const urls = [];
+  const today = new Date().toISOString().split('T')[0];
+  for (const sport of LIVE_SPORT_IDS) {
+    try {
+      const result = await getRealSportLive(sport);
+      for (const m of (result?.matches || []).slice(0, 50)) {
+        urls.push({
+          loc: `${SITE_URL}/match/${m.id}`,
+          lastmod: today,
+          changefreq: m.status === 'live' ? 'always' : 'hourly',
+          priority: m.status === 'live' ? '0.9' : '0.7',
+        });
+      }
+    } catch { /* skip sport */ }
+  }
+  return urls;
+}
+
+app.get('/sitemap.xml', (req, res) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(buildSitemapIndex());
+});
+
+app.get('/sitemap-app.xml', async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const entries = STATIC_SITEMAP_PATHS.map(({ path, changefreq, priority }) => ({
+      loc: `${SITE_URL}${path}`,
+      lastmod: today,
+      changefreq,
+      priority,
+    }));
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(buildSitemapXml(entries));
+  } catch (err) {
+    res.status(500).send(buildSitemapXml([]));
+  }
+});
+
+app.get('/sitemap-matches.xml', async (req, res) => {
+  try {
+    const entries = await collectActiveMatchUrls();
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+    res.send(buildSitemapXml(entries));
+  } catch (err) {
+    res.status(500).send(buildSitemapXml([]));
+  }
+});
+
+// Legacy alias — some crawlers expect /api/sitemap.xml
+app.get('/api/sitemap.xml', (req, res) => res.redirect(301, '/sitemap.xml'));
+
+// ============================================
 // STRIPE PREMIUM TIER
 // ============================================
 
@@ -4013,14 +4187,18 @@ app.post('/api/premium/checkout', verifyToken, async (req, res) => {
   if (!stripe || !STRIPE_PRICE_ID) {
     return res.status(503).json({ error: 'Premium billing not configured.' });
   }
-  const { username } = req.body;
+  const username = req.body?.username || req.user?.username;
+  if (!username) {
+    return res.status(400).json({ error: 'Username required for checkout.' });
+  }
   try {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
-      success_url: `https://esportsduniya.in/profile?premium=success`,
-      cancel_url: `https://esportsduniya.in/profile?premium=cancelled`,
+      success_url: `${SITE_URL}/profile?premium=success`,
+      cancel_url: `${SITE_URL}/profile?premium=cancelled`,
       metadata: { username },
+      subscription_data: { metadata: { username } },
     });
     res.json({ url: session.url });
   } catch (err) {
@@ -4028,7 +4206,7 @@ app.post('/api/premium/checkout', verifyToken, async (req, res) => {
   }
 });
 
-app.post('/api/premium/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/api/premium/webhook', async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Stripe not configured.' });
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -4568,22 +4746,22 @@ app.get('/blog', async (req, res) => {
 <title>Sports Blog — Latest Cricket, Football & F1 News | Esportsduniya</title>
 <meta name="description" content="Stay updated with the latest sports news, match previews, player analysis, and tournament updates for cricket, football, NBA, tennis, and F1 on Esportsduniya." />
 <meta name="robots" content="index, follow" />
-<link rel="canonical" href="https://www.esportsduniya.in/blog" />
+<link rel="canonical" href="https://esportsduniya.in/blog" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Sports Blog — Esportsduniya" />
 <meta property="og:description" content="Latest sports news, match previews and analysis for cricket, football, NBA, tennis and F1." />
-<meta property="og:url" content="https://www.esportsduniya.in/blog" />
-<meta property="og:image" content="https://www.esportsduniya.in/og-cover.png" />
+<meta property="og:url" content="https://esportsduniya.in/blog" />
+<meta property="og:image" content="https://esportsduniya.in/og-cover.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Sports Blog — Esportsduniya" />
 <meta name="twitter:description" content="Latest sports news and match previews." />
-<meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png" />
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"Esportsduniya Sports News","url":"https://www.esportsduniya.in/blog","description":"Latest sports headlines and news","publisher":{"@type":"Organization","name":"Esportsduniya","url":"https://www.esportsduniya.in","logo":{"@type":"ImageObject","url":"https://www.esportsduniya.in/og-cover.png"}}}</script>
+<meta name="twitter:image" content="https://esportsduniya.in/og-cover.png" />
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"Esportsduniya Sports News","url":"https://esportsduniya.in/blog","description":"Latest sports headlines and news","publisher":{"@type":"Organization","name":"Esportsduniya","url":"https://esportsduniya.in","logo":{"@type":"ImageObject","url":"https://esportsduniya.in/og-cover.png"}}}</script>
 <style>${BLOG_CSS}</style>
 </head>
 <body>
 <header class="blog-header">
-  <a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a>
+  <a class="blog-header-logo" href="https://esportsduniya.in">⚡ Esports<span>Duniya</span></a>
   <nav class="blog-header-nav">
     <a href="https://esportsduniya.in/sport/cricket">Cricket</a>
     <a href="https://esportsduniya.in/sport/football">Football</a>
@@ -4600,7 +4778,7 @@ app.get('/blog', async (req, res) => {
   </div>
 </main>
 <footer class="blog-footer">
-  <p>© ${new Date().getFullYear()} <a href="https://www.esportsduniya.in">Esportsduniya</a> — AI-powered live sports platform</p>
+  <p>© ${new Date().getFullYear()} <a href="https://esportsduniya.in">Esportsduniya</a> — AI-powered live sports platform</p>
 </footer>
 </body>
 </html>`;
@@ -4621,13 +4799,13 @@ app.get('/blog/:slug', async (req, res) => {
     const article = await dbFindArticleBySlug(slug);
     if (!article) {
       res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Not Found — Esportsduniya</title><style>${BLOG_CSS}</style></head><body><header class="blog-header"><a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a></header><main><div class="blog-content-wrap" style="text-align:center;padding:6rem 24px"><h2 style="color:#fff;font-size:2rem;margin-bottom:1rem">Article Not Found</h2><p style="color:#888;margin-bottom:2rem">This article may have been removed or hasn't been generated yet.</p><a href="/blog" style="color:#1ee6a7">← Back to Blog</a></div></main></body></html>`);
+      return res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Not Found — Esportsduniya</title><style>${BLOG_CSS}</style></head><body><header class="blog-header"><a class="blog-header-logo" href="https://esportsduniya.in">⚡ Esports<span>Duniya</span></a></header><main><div class="blog-content-wrap" style="text-align:center;padding:6rem 24px"><h2 style="color:#fff;font-size:2rem;margin-bottom:1rem">Article Not Found</h2><p style="color:#888;margin-bottom:2rem">This article may have been removed or hasn't been generated yet.</p><a href="/blog" style="color:#1ee6a7">← Back to Blog</a></div></main></body></html>`);
     }
 
     const pubDate = new Date(article.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
     const pubIso  = new Date(article.publishedAt).toISOString();
     const keywordsHtml = (article.keywords || []).map(k => `<span>${escapeHtml(k)}</span>`).join('');
-    const canonicalUrl = `https://www.esportsduniya.in/blog/${escapeHtml(slug)}`;
+    const canonicalUrl = `https://esportsduniya.in/blog/${escapeHtml(slug)}`;
     const siteName = 'Esportsduniya';
 
     const jsonLd = JSON.stringify({
@@ -4638,14 +4816,14 @@ app.get('/blog/:slug', async (req, res) => {
       url: canonicalUrl,
       datePublished: pubIso,
       dateModified: pubIso,
-      author: { '@type': 'Organization', name: siteName, url: 'https://www.esportsduniya.in' },
+      author: { '@type': 'Organization', name: siteName, url: 'https://esportsduniya.in' },
       publisher: {
         '@type': 'Organization',
         name: siteName,
-        url: 'https://www.esportsduniya.in',
-        logo: { '@type': 'ImageObject', url: 'https://www.esportsduniya.in/og-cover.png' },
+        url: 'https://esportsduniya.in',
+        logo: { '@type': 'ImageObject', url: 'https://esportsduniya.in/og-cover.png' },
       },
-      image: { '@type': 'ImageObject', url: 'https://www.esportsduniya.in/og-cover.png', width: 1200, height: 630 },
+      image: { '@type': 'ImageObject', url: 'https://esportsduniya.in/og-cover.png', width: 1200, height: 630 },
       keywords: (article.keywords || []).join(', '),
       wordCount: article.wordCount,
       articleSection: article.category,
@@ -4667,7 +4845,7 @@ app.get('/blog/:slug', async (req, res) => {
 <meta property="og:title" content="${escapeHtml(article.title)}" />
 <meta property="og:description" content="${escapeHtml(article.metaDescription)}" />
 <meta property="og:url" content="${canonicalUrl}" />
-<meta property="og:image" content="https://www.esportsduniya.in/og-cover.png" />
+<meta property="og:image" content="https://esportsduniya.in/og-cover.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:site_name" content="Esportsduniya" />
@@ -4678,13 +4856,13 @@ app.get('/blog/:slug', async (req, res) => {
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${escapeHtml(article.title)}" />
 <meta name="twitter:description" content="${escapeHtml(article.metaDescription)}" />
-<meta name="twitter:image" content="https://www.esportsduniya.in/og-cover.png" />
+<meta name="twitter:image" content="https://esportsduniya.in/og-cover.png" />
 <script type="application/ld+json">${jsonLd}</script>
 <style>${BLOG_CSS}</style>
 </head>
 <body>
 <header class="blog-header">
-  <a class="blog-header-logo" href="https://www.esportsduniya.in">⚡ Esports<span>Duniya</span></a>
+  <a class="blog-header-logo" href="https://esportsduniya.in">⚡ Esports<span>Duniya</span></a>
   <nav class="blog-header-nav">
     <a href="https://esportsduniya.in/sport/cricket">Cricket</a>
     <a href="https://esportsduniya.in/sport/football">Football</a>
@@ -4725,7 +4903,7 @@ app.get('/blog/:slug', async (req, res) => {
   </div>
 </main>
 <footer class="blog-footer">
-  <p>© ${new Date().getFullYear()} <a href="https://www.esportsduniya.in">Esportsduniya</a> — AI-powered live sports platform. Article generated by AI using real-time sports data.</p>
+  <p>© ${new Date().getFullYear()} <a href="https://esportsduniya.in">Esportsduniya</a> — AI-powered live sports platform. Article generated by AI using real-time sports data.</p>
 </footer>
 </body>
 </html>`;
@@ -4746,7 +4924,7 @@ app.get('/sitemap-blog.xml', async (req, res) => {
     const urls = list.map(a => {
       const lastmod = new Date(a.publishedAt).toISOString().split('T')[0];
       return `  <url>
-    <loc>https://www.esportsduniya.in/blog/${escapeHtml(a.slug)}</loc>
+    <loc>https://esportsduniya.in/blog/${escapeHtml(a.slug)}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
@@ -4756,7 +4934,7 @@ app.get('/sitemap-blog.xml', async (req, res) => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://www.esportsduniya.in/blog</loc>
+    <loc>https://esportsduniya.in/blog</loc>
     <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>

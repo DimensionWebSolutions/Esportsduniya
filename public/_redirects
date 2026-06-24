@@ -1,6 +1,13 @@
-# ── Blog: proxy to Render backend so /blog/* are real, Google-indexable URLs ──
+# ── SSR pages: proxy to Render backend (Google-indexable HTML) ──
 /blog https://esportsduniya.onrender.com/blog 200
 /blog/* https://esportsduniya.onrender.com/blog/:splat 200
+/sport/* https://esportsduniya.onrender.com/sport/:splat 200
+/match/* https://esportsduniya.onrender.com/match/:splat 200
+/cricket/* https://esportsduniya.onrender.com/cricket/:splat 200
+/football/* https://esportsduniya.onrender.com/football/:splat 200
+/sitemap.xml https://esportsduniya.onrender.com/sitemap.xml 200
+/sitemap-app.xml https://esportsduniya.onrender.com/sitemap-app.xml 200
+/sitemap-matches.xml https://esportsduniya.onrender.com/sitemap-matches.xml 200
 /sitemap-blog.xml https://esportsduniya.onrender.com/sitemap-blog.xml 200
 
 # ── API: proxy to Render backend (fallback if VITE_API_URL missing in build) ──

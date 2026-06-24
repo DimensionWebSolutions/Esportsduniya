@@ -1,5 +1,5 @@
 /** Leagues with real standings data on the backend */
-export const STANDINGS_SUPPORTED = ['football', 'f1', 'nba'];
+export const STANDINGS_SUPPORTED = ['football', 'f1', 'nba', 'cricket'];
 
 const LABELS = {
   football: 'Football',

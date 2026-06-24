@@ -80,9 +80,30 @@ Expected health fields:
 VITE_API_URL=https://esportsduniya.onrender.com
 VITE_WS_URL=wss://esportsduniya.onrender.com
 VITE_FOOTBALL_API_KEY=your_football-data_key
+VITE_GOOGLE_SITE_VERIFICATION=your_gsc_token
+VITE_SENTRY_DSN=https://your_sentry_dsn@sentry.io/project
 ```
 
-> `public/_redirects` also proxies `/api/*` and `/blog/*` to Render when `VITE_API_URL` is unset, but setting `VITE_API_URL` explicitly is recommended.
+> `public/_redirects` proxies `/api/*`, `/blog/*`, `/sport/*`, `/match/*`, and sitemaps to Render for Google-indexable SSR HTML.
+
+### SEO: canonical domain & Search Console
+
+1. **Cloudflare Redirect Rule**: `(http.host eq "www.esportsduniya.in")` → 301 → `https://esportsduniya.in/${uri.path}`
+2. **Google Search Console**: verify `esportsduniya.in`, submit sitemaps:
+   - `https://esportsduniya.in/sitemap.xml`
+   - `https://esportsduniya.in/sitemap-blog.xml`
+3. Set `VITE_GOOGLE_SITE_VERIFICATION` in Cloudflare Pages build env (HTML tag method).
+
+### Render env (production hardening)
+
+```
+NODE_ENV=production
+MONGODB_URI=...          # required — server exits without it in production
+SENTRY_DSN=...           # optional backend error tracking
+STRIPE_SECRET_KEY=...
+STRIPE_PRICE_ID=...
+STRIPE_WEBHOOK_SECRET=...
+```
 
 ### Deploy
 

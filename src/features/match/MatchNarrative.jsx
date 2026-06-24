@@ -4,6 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Skeleton } from '@/ui/section';
 
+function authHeaders() {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export function MatchNarrative({ match, tone = 'casual' }) {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,10 +22,14 @@ export function MatchNarrative({ match, tone = 'casual' }) {
     try {
       const res = await fetch(apiUrl('/api/ai/narrative'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ matchContext: match, tone }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setText('Sign in to unlock AI match commentary.');
+        return;
+      }
       if (data.unavailable || data.error) {
         setText(data.error || 'AI commentary is temporarily unavailable.');
         return;

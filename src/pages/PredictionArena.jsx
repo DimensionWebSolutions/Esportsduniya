@@ -43,7 +43,13 @@ export default function PredictionArena() {
       description="Skill-rated predictions with weekly seasons and calibration scoring."
     >
       <Helmet>
-        <title>Prediction Arena | Esportsduniya</title>
+        <title>Sports Prediction Arena India | Esportsduniya</title>
+        <meta name="description" content="Compete in skill-rated sports predictions with weekly seasons, calibration scoring, and leaderboards. Free to play — sign in and predict live matches." />
+        <meta property="og:title" content="Prediction Arena — Esportsduniya" />
+        <meta property="og:description" content="Gamified sports predictions with calibration scoring and weekly leaderboards." />
+        <meta property="og:url" content="https://esportsduniya.in/arena" />
+        <meta property="og:locale" content="en_IN" />
+        <link rel="canonical" href="https://esportsduniya.in/arena" />
       </Helmet>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

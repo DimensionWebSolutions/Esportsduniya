@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Share2, Bell, MessageCircle } from 'lucide-react';
+import { Share2, MessageCircle } from 'lucide-react';
 import { cn, sportBg } from '@/lib/utils';
 import { Card, CardContent } from '@/ui/card';
 import { Badge, LiveBadge, SportPill } from '@/ui/badge';
@@ -12,31 +12,40 @@ function StatusBadge({ status }) {
   return <Badge variant="finished">Final</Badge>;
 }
 
-export function MatchCard({ match, onClick, className }) {
+export function MatchCard({ match, onClick, href, className }) {
   if (!match) return null;
 
+  const matchPath = href || `/match/${match.id}`;
+
   const handleShare = (e) => {
+    e.preventDefault();
     e.stopPropagation();
     shareMatch(match);
   };
 
   const handleWhatsApp = (e) => {
+    e.preventDefault();
     e.stopPropagation();
     shareMatchWhatsApp(match);
   };
 
+  const handleCardClick = (e) => {
+    if (e.defaultPrevented) return;
+    onClick?.(match);
+  };
+
   return (
-    <Card
+    <Link
+      to={matchPath}
       data-match-id={match.id}
+      className={cn('block min-w-0', className)}
+      onClick={handleCardClick}
+    >
+    <Card
       className={cn(
         'group min-w-0 overflow-hidden cursor-pointer border-border bg-surface-1 transition-all hover:border-accent/40 hover:bg-surface-2',
         sportBg(match.sport),
-        className
       )}
-      onClick={() => onClick?.(match)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onClick?.(match)}
     >
       <CardContent className="p-0">
         <div className="flex items-start gap-2 border-b border-border-subtle px-4 py-3">
@@ -77,6 +86,7 @@ export function MatchCard({ match, onClick, className }) {
         </div>
       </CardContent>
     </Card>
+    </Link>
   );
 }
 

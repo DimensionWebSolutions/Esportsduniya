@@ -24,6 +24,7 @@ import { CommandSearch } from '@/ui/command-search';
 import { AuthModal } from '@/ui/auth-modal';
 import MomentEngine from '@/components/MomentEngine.jsx';
 import { initLiveScoreManager } from '@/services/LiveScoreManager.js';
+import SiteFooter from '@/components/SiteFooter.jsx';
 import { hashToPath, pageIdToPath } from '@/utils/routes';
 
 const NAV_ITEMS = [
@@ -179,6 +180,8 @@ export default function AppLayout() {
         <main className="flex-1 px-4 py-6 pb-24 lg:px-8 lg:pb-8">
           <Outlet context={{ openLogin }} />
         </main>
+
+        <SiteFooter />
 
         <nav className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-border bg-surface-1/95 backdrop-blur-md lg:hidden">
           {MOBILE_NAV.map(({ to, label, icon: Icon, end }) => (

@@ -385,9 +385,8 @@ export async function fetchPreGamePreview(matchContext) {
     }
 
     try {
-        const res = await fetch(`${API_BASE}/api/ai/preview`, {
+        const res = await authFetch(`${API_BASE}/api/ai/preview`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ matchContext }),
             signal: AbortSignal.timeout(30000),
         });
@@ -404,9 +403,8 @@ export async function fetchPreGamePreview(matchContext) {
 export async function fetchMomentumAnalysis(matchContext, events) {
     if (!apiAvailable) return { unavailable: true, source: 'unavailable' };
     try {
-        const res = await fetch(`${API_BASE}/api/ai/momentum`, {
+        const res = await authFetch(`${API_BASE}/api/ai/momentum`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ matchContext, events }),
             signal: AbortSignal.timeout(30000),
         });
@@ -437,9 +435,8 @@ export async function fetchSocialSentiment(matchContext) {
         return null;
     }
     try {
-        const res = await fetch(`${API_BASE}/api/ai/social-sentiment`, {
+        const res = await authFetch(`${API_BASE}/api/ai/social-sentiment`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ matchContext }),
             signal: AbortSignal.timeout(30000),
         });

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { ArrowLeft, Share2, Target } from 'lucide-react';
+import { ArrowLeft, Share2, Target, MessageCircle } from 'lucide-react';
 import { fetchLiveMatches, apiUrl } from '@/services/apiService';
+import { shareMatch, shareMatchWhatsApp } from '@/components/ShareCard.js';
 import { trackEvent, EVENTS } from '@/services/analytics';
 import { LiveBadge, SportPill } from '@/ui/badge';
 import { Button } from '@/ui/button';
@@ -93,11 +94,17 @@ export default function MatchCommandCenter() {
   const crowdB = 100 - crowdA;
   const toneMap = { casual: 'hype', fantasy: 'analytical', tactical: 'analytical' };
 
-  const share = () => {
-    const url = window.location.href;
-    if (navigator.share) navigator.share({ title: `${match.teamA.name} vs ${match.teamB.name}`, url });
-    else navigator.clipboard?.writeText(url);
+  const share = async () => {
+    await shareMatch(match);
+    trackEvent(EVENTS.SHARE_MOMENT, { match_id: match.id, channel: 'native' });
   };
+
+  const shareWhatsApp = () => {
+    shareMatchWhatsApp(match);
+    trackEvent(EVENTS.SHARE_MOMENT, { match_id: match.id, channel: 'whatsapp' });
+  };
+
+  const ogShareUrl = apiUrl(`/api/og/${match.id}`);
 
   const ScoreHeader = () => (
     <Card className="overflow-hidden border-border bg-surface-1">
@@ -161,7 +168,13 @@ export default function MatchCommandCenter() {
     <div className="mx-auto max-w-7xl">
       <Helmet>
         <title>{`${match.teamA?.name} vs ${match.teamB?.name} — Live | Esportsduniya`}</title>
-        <meta name="description" content={`Live score and AI analysis for ${match.teamA?.name} vs ${match.teamB?.name}`} />
+        <meta name="description" content={`Live score and AI analysis for ${match.teamA?.name} vs ${match.teamB?.name}. ${match.league || ''}`} />
+        <meta property="og:title" content={`${match.teamA?.name} vs ${match.teamB?.name} — Live Score`} />
+        <meta property="og:description" content={`${match.teamA?.score ?? ''} - ${match.teamB?.score ?? ''} · ${match.league || match.sport}`} />
+        <meta property="og:url" content={`https://esportsduniya.in/match/${match.id}`} />
+        <meta property="og:image" content={ogShareUrl} />
+        <meta property="og:locale" content="en_IN" />
+        <link rel="canonical" href={`https://esportsduniya.in/match/${match.id}`} />
       </Helmet>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -173,6 +186,9 @@ export default function MatchCommandCenter() {
         </Button>
         <Button variant="outline" size="sm" onClick={share}>
           <Share2 className="mr-1 h-4 w-4" />Share
+        </Button>
+        <Button variant="outline" size="sm" onClick={shareWhatsApp}>
+          <MessageCircle className="mr-1 h-4 w-4" />WhatsApp
         </Button>
       </div>
 

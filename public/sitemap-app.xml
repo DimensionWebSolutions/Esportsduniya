@@ -1,69 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Static fallback — production sitemap is generated dynamically at /sitemap-app.xml on Render -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://esportsduniya.in/</loc>
-    <lastmod>2026-06-20</lastmod>
     <changefreq>always</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://esportsduniya.in/blog</loc>
-    <lastmod>2026-06-20</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
     <loc>https://esportsduniya.in/sport/cricket</loc>
-    <lastmod>2026-06-20</lastmod>
     <changefreq>always</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://esportsduniya.in/sport/football</loc>
-    <lastmod>2026-06-20</lastmod>
     <changefreq>always</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://esportsduniya.in/sport/nba</loc>
-    <lastmod>2026-06-20</lastmod>
+    <loc>https://esportsduniya.in/cricket/ipl-2026</loc>
     <changefreq>always</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://esportsduniya.in/football/premier-league</loc>
+    <changefreq>always</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://esportsduniya.in/standings</loc>
+    <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://esportsduniya.in/sport/tennis</loc>
-    <lastmod>2026-06-20</lastmod>
-    <changefreq>always</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://esportsduniya.in/sport/f1</loc>
-    <lastmod>2026-06-20</lastmod>
-    <changefreq>always</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://esportsduniya.in/timemachine</loc>
-    <lastmod>2026-06-20</lastmod>
+    <loc>https://esportsduniya.in/pricing</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://esportsduniya.in/crowdpulse</loc>
-    <lastmod>2026-06-20</lastmod>
-    <changefreq>hourly</changefreq>
-    <priority>0.7</priority>
+    <loc>https://esportsduniya.in/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://esportsduniya.in/arena</loc>
-    <lastmod>2026-06-20</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.7</priority>
+    <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://esportsduniya.in/leaderboard</loc>
-    <lastmod>2026-06-20</lastmod>
-    <changefreq>hourly</changefreq>
-    <priority>0.7</priority>
+    <loc>https://esportsduniya.in/blog</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
   </url>
 </urlset>

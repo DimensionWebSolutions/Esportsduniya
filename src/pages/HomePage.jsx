@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { RefreshCw, Radio, ExternalLink } from 'lucide-react';
 import { SPORTS } from '@/data/mockData.js';
+import { helmetForSport } from '@/data/sport-seo.js';
 import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hooks/useLiveScores';
 import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
@@ -46,6 +47,7 @@ export default function HomePage() {
   });
 
   const liveCount = matches.filter(m => m.status === 'live').length;
+  const pageMeta = helmetForSport(activeSport);
 
   const setSport = (id) => {
     if (id === 'all') navigate('/');
@@ -55,8 +57,12 @@ export default function HomePage() {
   return (
     <div className="mx-auto max-w-7xl">
       <Helmet>
-        <title>Esportsduniya — Live Sports Intelligence</title>
-        <meta name="description" content="Real-time scores, AI analysis, and prediction arena across Cricket, Football, NBA, Tennis, and F1." />
+        <title>{pageMeta.title}</title>
+        <meta name="description" content={pageMeta.description} />
+        <meta property="og:locale" content="en_IN" />
+        {activeSport !== 'all' && (
+          <link rel="canonical" href={`https://esportsduniya.in/sport/${activeSport}`} />
+        )}
       </Helmet>
 
       <div className="mb-8">
@@ -180,23 +186,13 @@ export default function HomePage() {
               <MatchCard
                 key={match.id}
                 match={match}
+                href={`/match/${match.id}`}
                 onClick={(m) => navigate(`/match/${m.id}`)}
               />
             ))}
           </div>
         )}
       </Section>
-
-      <footer className="mt-16 border-t border-border pt-8 text-sm text-muted">
-        <div className="flex flex-wrap gap-4">
-          <Link to="/about" className="hover:text-foreground">About</Link>
-          <Link to="/pricing" className="hover:text-foreground">Pro Plans</Link>
-          <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
-          <Link to="/terms" className="hover:text-foreground">Terms</Link>
-          <Link to="/contact" className="hover:text-foreground">Contact</Link>
-        </div>
-        <p className="mt-4">© {new Date().getFullYear()} Esportsduniya</p>
-      </footer>
     </div>
   );
 }

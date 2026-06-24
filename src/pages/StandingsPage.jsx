@@ -31,7 +31,7 @@ export default function StandingsPage() {
   return (
     <DashboardLayout
       title="Standings"
-      description="League tables for football (EPL), F1 drivers, and NBA."
+      description="League tables for football (EPL), F1 drivers, NBA, and cricket (IPL)."
     >
       <Tabs value={league} onValueChange={setLeague}>
         <TabsList className="mb-6 flex-wrap">

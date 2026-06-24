@@ -48,12 +48,26 @@ export function createOracleChat(matchContext, gsap) {
         const loader = addMessage('Consulting the stars...', 'ai loading');
 
         try {
+            const token = localStorage.getItem('token');
             const response = await fetch(apiUrl('/api/ai/oracle'), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
                 body: JSON.stringify({ matchContext, question: text, history })
             });
             const data = await response.json();
+            if (response.status === 401) {
+                loader.remove();
+                addMessage('Sign in to ask The Oracle.', 'ai error');
+                return;
+            }
+            if (response.status === 403) {
+                loader.remove();
+                addMessage('Pro subscription required for The Oracle. Upgrade at /pricing.', 'ai error');
+                return;
+            }
 
             loader.remove();
             addMessage(data.answer, 'ai');
