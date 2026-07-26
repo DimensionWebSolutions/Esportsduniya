@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiUrl } from '@/config/apiBase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
+import { reportChallengeProgress } from '@/features/engagement/challengeProgress';
 
 export function MatchFanZone({ matchId, teamA, teamB }) {
   const qc = useQueryClient();
@@ -18,7 +19,10 @@ export function MatchFanZone({ matchId, teamA, teamB }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ team }),
     }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['fanzone', matchId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fanzone', matchId] });
+      reportChallengeProgress('cheer', `cheer:${matchId}`);
+    },
   });
 
   const cheersA = data?.teamA ?? 0;

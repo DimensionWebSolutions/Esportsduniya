@@ -15,6 +15,7 @@ import { MatchNarrative } from '@/features/match/MatchNarrative';
 import { MatchFanZone } from '@/features/match/MatchFanZone';
 import { MatchOracle } from '@/features/match/MatchOracle';
 import FantasyPicks from '@/components/FantasyPicks.jsx';
+import { reportChallengeProgress } from '@/features/engagement/challengeProgress';
 import { cn } from '@/lib/utils';
 
 export default function MatchCommandCenter() {
@@ -29,6 +30,7 @@ export default function MatchCommandCenter() {
 
   useEffect(() => {
     trackEvent(EVENTS.VIEW_MATCH, { match_id: matchId });
+    reportChallengeProgress('view_match', `match:${matchId}`);
     let cancelled = false;
     (async () => {
       setLoading(true);

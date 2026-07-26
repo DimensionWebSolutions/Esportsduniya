@@ -9,6 +9,7 @@ import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { StatTile, Skeleton } from '@/ui/section';
 import { SportPill } from '@/ui/badge';
+import { DailyChallengesPanel } from '@/features/engagement/DailyChallengesPanel';
 
 export default function ProfilePage() {
   const { user: authUser, token } = useAuth();
@@ -49,6 +50,10 @@ export default function ProfilePage() {
         <StatTile label="FanPoints" value={(user?.fanPoints || 0).toLocaleString()} />
         <StatTile label="Streak" value={`${user?.streak || 0} days`} />
         <StatTile label="Badges" value={user?.badges?.length || 0} />
+      </div>
+
+      <div className="mb-8">
+        <DailyChallengesPanel />
       </div>
 
       <Card className="mb-8">

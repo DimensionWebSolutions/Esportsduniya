@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { trackEvent, EVENTS } from '@/services/analytics';
+import { reportChallengeProgress } from '@/features/engagement/challengeProgress';
 
 export function MatchOracle({ match, sport }) {
   const { user, token } = useAuth();
@@ -37,6 +38,7 @@ export function MatchOracle({ match, sport }) {
       if (res.ok || data.error === 'Prediction already made for this match') {
         setLocked(true);
         trackEvent(EVENTS.LOCK_PREDICTION, { match_id: match.id });
+        if (res.ok) reportChallengeProgress('predict', `predict:${match.id}`);
       } else {
         setError(data.error || 'Could not save prediction');
       }

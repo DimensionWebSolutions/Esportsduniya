@@ -8,6 +8,7 @@ import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
 import { DailyQuizTeaser } from '@/features/engagement/DailyQuizTeaser';
+import { DailyChallengesPanel } from '@/features/engagement/DailyChallengesPanel';
 import { cn } from '@/lib/utils';
 
 function readPrefs() {
@@ -158,6 +159,7 @@ export default function HomePage() {
       >
         <div className="grid gap-4 lg:grid-cols-2">
           <DailyQuizTeaser />
+          <DailyChallengesPanel />
         </div>
       </Section>
 
