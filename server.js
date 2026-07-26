@@ -1390,6 +1390,7 @@ app.get('/api/health', (req, res) => {
       aiScores: hasGemini ? 'configured' : 'missing',
       openai: hasOpenAI ? 'configured' : 'missing',
       gemini: hasGemini ? 'configured' : 'missing',
+      aiBlog: ENABLE_AI_BLOG ? (hasGemini ? 'enabled' : 'enabled-no-key') : 'disabled',
       database: dbStatus,
       push: (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) ? 'configured' : 'missing',
       premium: stripe ? 'configured' : 'missing',

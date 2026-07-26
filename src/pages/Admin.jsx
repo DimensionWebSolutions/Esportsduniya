@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '@/config/apiBase';
 import { DashboardLayout } from '@/layouts/PageLayouts';
 import { StatTile, Skeleton } from '@/ui/section';
+import { Card } from '@/ui/card';
 import { DataTable } from '@/ui/table';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -13,9 +14,16 @@ function authHeaders() {
   return { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) };
 }
 
+const AI_BLOG_LABEL = {
+  enabled: { text: 'Enabled (Gemini configured)', variant: 'live' },
+  'enabled-no-key': { text: 'Enabled, but no GEMINI_API_KEY set', variant: 'finished' },
+  disabled: { text: 'Disabled — set ENABLE_AI_BLOG=true', variant: 'finished' },
+};
+
 export default function AdminPanel() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
+  const [health, setHealth] = useState(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -25,15 +33,17 @@ export default function AdminPanel() {
   const fetchAll = useCallback(async () => {
     try {
       const q = search ? `&search=${encodeURIComponent(search)}` : '';
-      const [statsRes, usersRes] = await Promise.all([
+      const [statsRes, usersRes, healthRes] = await Promise.all([
         fetch(apiUrl('/api/admin/stats'), { headers: authHeaders() }),
         fetch(apiUrl(`/api/admin/users?page=1&limit=20${q}`), { headers: authHeaders() }),
+        fetch(apiUrl('/api/health')),
       ]);
       if (statsRes.ok) setStats(await statsRes.json());
       if (usersRes.ok) {
         const data = await usersRes.json();
         setUsers(data.users || []);
       }
+      if (healthRes.ok) setHealth(await healthRes.json());
     } finally {
       setLoading(false);
     }
@@ -86,6 +96,27 @@ export default function AdminPanel() {
             <StatTile label="Predictions" value={stats?.totalPredictions ?? '—'} />
             <StatTile label="Articles" value={stats?.totalArticles ?? '—'} />
           </div>
+
+          {health && (
+            <Card className="mb-8">
+              <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+                <div>
+                  <p className="font-display font-semibold">Content & AI status</p>
+                  <p className="mt-1 text-sm text-muted">
+                    "Refresh news" always re-pulls RSS headlines. AI-written long-form articles only run when both Gemini and AI Blog are enabled below.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={health.apis?.gemini === 'configured' ? 'live' : 'finished'}>
+                    Gemini: {health.apis?.gemini === 'configured' ? 'Configured' : 'Missing'}
+                  </Badge>
+                  <Badge variant={AI_BLOG_LABEL[health.apis?.aiBlog]?.variant || 'finished'}>
+                    AI Blog: {AI_BLOG_LABEL[health.apis?.aiBlog]?.text || health.apis?.aiBlog || 'Unknown'}
+                  </Badge>
+                </div>
+              </div>
+            </Card>
+          )}
 
           <Tabs defaultValue="users">
             <TabsList className="mb-4">
