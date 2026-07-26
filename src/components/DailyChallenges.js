@@ -244,3 +244,7 @@ export function trackShareAction() {
   localStorage.setItem(`esd_shared_today_${today}`, '1');
   syncChallengeProgress('share');
 }
+
+export function trackLoginAction() {
+  syncChallengeProgress('login');
+}

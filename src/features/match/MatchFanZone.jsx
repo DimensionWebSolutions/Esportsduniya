@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiUrl } from '@/config/apiBase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
+import { trackCheerAction } from '@/components/DailyChallenges.js';
 
 export function MatchFanZone({ matchId, teamA, teamB }) {
   const qc = useQueryClient();
@@ -18,26 +18,36 @@ export function MatchFanZone({ matchId, teamA, teamB }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ team }),
     }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['fanzone', matchId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fanzone', matchId] });
+      trackCheerAction();
+    },
   });
 
-  const cheersA = data?.teamA ?? 0;
-  const cheersB = data?.teamB ?? 0;
+  const cheersA = data?.cheers?.teamA ?? 0;
+  const cheersB = data?.cheers?.teamB ?? 0;
   const total = cheersA + cheersB || 1;
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Fan Zone</CardTitle>
+        {(cheersA + cheersB) > 0 && (
+          <span className="font-data text-xs text-muted">{(cheersA + cheersB).toLocaleString()} cheers</span>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between text-xs text-muted">
-            <span>{teamA?.name}</span>
+            <span>{teamA?.name} · {cheersA.toLocaleString()}</span>
             <span className="font-data">{Math.round((cheersA / total) * 100)}%</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-surface-2">
             <div className="h-full bg-accent" style={{ width: `${(cheersA / total) * 100}%` }} />
+          </div>
+          <div className="flex justify-between text-xs text-muted">
+            <span>{teamB?.name} · {cheersB.toLocaleString()}</span>
+            <span className="font-data">{Math.round((cheersB / total) * 100)}%</span>
           </div>
         </div>
         <div className="flex gap-2">

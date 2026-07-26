@@ -23,6 +23,7 @@ import { Button } from '@/ui/button';
 import { CommandSearch } from '@/ui/command-search';
 import { AuthModal } from '@/ui/auth-modal';
 import MomentEngine from '@/components/MomentEngine.jsx';
+import { trackLoginAction } from '@/components/DailyChallenges.js';
 import { initLiveScoreManager } from '@/services/LiveScoreManager.js';
 import SiteFooter from '@/components/SiteFooter.jsx';
 import { hashToPath, pageIdToPath } from '@/utils/routes';
@@ -131,6 +132,10 @@ export default function AppLayout() {
     document.addEventListener('lsm:score_update', refreshScores);
     return () => document.removeEventListener('lsm:score_update', refreshScores);
   }, [queryClient]);
+
+  useEffect(() => {
+    if (user?.username) trackLoginAction();
+  }, [user?.username]);
 
   useEffect(() => {
     window.esportsNavigate = (pageId) => navigate(pageIdToPath(pageId));

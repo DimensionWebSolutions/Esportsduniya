@@ -4,9 +4,11 @@ import { RefreshCw, Radio, ExternalLink } from 'lucide-react';
 import { SPORTS } from '@/data/mockData.js';
 import { helmetForSport } from '@/data/sport-seo.js';
 import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hooks/useLiveScores';
+import { useAuth } from '@/hooks/useAuth';
 import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
+import DailyChallengesCard from '@/components/DailyChallengesCard.jsx';
 import { cn } from '@/lib/utils';
 
 function readPrefs() {
@@ -29,6 +31,7 @@ export default function HomePage() {
   const navigate = useNavigate();
   const activeSport = sportParam || 'all';
   const { favSports } = readPrefs();
+  const { isAuthenticated } = useAuth();
 
   const { data, isLoading, error, refetch, isFetching } = useLiveScores(activeSport);
   const { data: socialStats } = usePublicStats();
@@ -154,12 +157,23 @@ export default function HomePage() {
         <Section title="Trending" className="mb-8">
           <div className="flex flex-wrap gap-2">
             {trending.slice(0, 6).map(t => (
-              <span key={t.sport || t.label} className="rounded-full border border-border bg-surface-1 px-3 py-1 text-xs text-muted">
-                {t.label || t.sport}
-              </span>
+              <button
+                key={t.sport || t.label}
+                type="button"
+                onClick={() => t.sport && setSport(t.sport)}
+                className="rounded-full border border-border bg-surface-1 px-3 py-1 text-xs text-muted transition-colors hover:border-accent/40 hover:bg-surface-2 hover:text-foreground"
+              >
+                {t.icon || '🔥'} {t.label || t.sport}{t.count > 0 ? ` · ${t.count}` : ''}
+              </button>
             ))}
           </div>
         </Section>
+      )}
+
+      {isAuthenticated && (
+        <div className="mb-8">
+          <DailyChallengesCard />
+        </div>
       )}
 
       <Section

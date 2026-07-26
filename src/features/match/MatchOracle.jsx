@@ -3,6 +3,7 @@ import { apiUrl } from '@/config/apiBase';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
+import { trackOracleAction } from '@/components/DailyChallenges.js';
 import { trackEvent, EVENTS } from '@/services/analytics';
 
 export function MatchOracle({ match, sport }) {
@@ -36,6 +37,7 @@ export function MatchOracle({ match, sport }) {
       const data = await res.json();
       if (res.ok || data.error === 'Prediction already made for this match') {
         setLocked(true);
+        trackOracleAction();
         trackEvent(EVENTS.LOCK_PREDICTION, { match_id: match.id });
       } else {
         setError(data.error || 'Could not save prediction');

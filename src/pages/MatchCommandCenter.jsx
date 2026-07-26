@@ -4,6 +4,7 @@ import { Helmet } from 'react-helmet-async';
 import { ArrowLeft, Share2, Target, MessageCircle } from 'lucide-react';
 import { fetchLiveMatches, apiUrl } from '@/services/apiService';
 import { shareMatch, shareMatchWhatsApp } from '@/components/ShareCard.js';
+import { trackViewAction } from '@/components/DailyChallenges.js';
 import { trackEvent, EVENTS } from '@/services/analytics';
 import { LiveBadge, SportPill } from '@/ui/badge';
 import { Button } from '@/ui/button';
@@ -29,6 +30,7 @@ export default function MatchCommandCenter() {
 
   useEffect(() => {
     trackEvent(EVENTS.VIEW_MATCH, { match_id: matchId });
+    trackViewAction();
     let cancelled = false;
     (async () => {
       setLoading(true);

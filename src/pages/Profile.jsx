@@ -9,6 +9,7 @@ import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { StatTile, Skeleton } from '@/ui/section';
 import { SportPill } from '@/ui/badge';
+import DailyChallengesCard from '@/components/DailyChallengesCard.jsx';
 
 export default function ProfilePage() {
   const { user: authUser, token } = useAuth();
@@ -50,6 +51,8 @@ export default function ProfilePage() {
         <StatTile label="Streak" value={`${user?.streak || 0} days`} />
         <StatTile label="Badges" value={user?.badges?.length || 0} />
       </div>
+
+      <DailyChallengesCard className="mb-8" streak={user?.streak || 0} />
 
       <Card className="mb-8">
         <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
