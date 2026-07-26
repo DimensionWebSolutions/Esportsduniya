@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { ArrowLeft, Share2, Target, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Share2, Target, MessageCircle, BarChart3, BookOpen, Trophy } from 'lucide-react';
 import { fetchLiveMatches, apiUrl } from '@/services/apiService';
 import { shareMatch, shareMatchWhatsApp } from '@/components/ShareCard.js';
+import { trackViewAction } from '@/components/DailyChallenges.js';
 import { trackEvent, EVENTS } from '@/services/analytics';
+import { useHeadlines } from '@/hooks/useLiveScores';
 import { LiveBadge, SportPill } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Card, CardContent } from '@/ui/card';
@@ -15,6 +17,7 @@ import { MatchNarrative } from '@/features/match/MatchNarrative';
 import { MatchFanZone } from '@/features/match/MatchFanZone';
 import { MatchOracle } from '@/features/match/MatchOracle';
 import FantasyPicks from '@/components/FantasyPicks.jsx';
+import PreGameBrief from '@/components/PreGameBrief.jsx';
 import { cn } from '@/lib/utils';
 
 export default function MatchCommandCenter() {
@@ -26,9 +29,11 @@ export default function MatchCommandCenter() {
   const [directorMode, setDirectorMode] = useState('casual');
   const [showFantasy, setShowFantasy] = useState(false);
   const [mobileTab, setMobileTab] = useState('overview');
+  const { data: headlines = [] } = useHeadlines(4);
 
   useEffect(() => {
     trackEvent(EVENTS.VIEW_MATCH, { match_id: matchId });
+    trackViewAction();
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -43,7 +48,7 @@ export default function MatchCommandCenter() {
   }, [matchId]);
 
   useEffect(() => {
-    if (!match) return;
+    if (!match || match.status === 'upcoming') return;
     const loadTimeline = async () => {
       setTimelineError('');
       try {
@@ -85,14 +90,24 @@ export default function MatchCommandCenter() {
       <div className="mx-auto max-w-lg rounded-xl border border-border bg-surface-1 p-12 text-center">
         <h2 className="font-display text-xl font-semibold">Match not found</h2>
         <p className="mt-2 text-muted">This match may have ended or the ID is invalid.</p>
-        <Button asChild className="mt-6"><Link to="/">Back to home</Link></Button>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <Button asChild><Link to="/">Back to home</Link></Button>
+          <Button asChild variant="secondary"><Link to="/standings">Standings</Link></Button>
+          <Button asChild variant="secondary"><Link to="/blog">Stories</Link></Button>
+        </div>
       </div>
     );
   }
 
+  const isUpcoming = match.status === 'upcoming';
   const crowdA = Math.max(12, Math.min(88, match.momentum || 50));
   const crowdB = 100 - crowdA;
   const toneMap = { casual: 'hype', fantasy: 'analytical', tactical: 'analytical' };
+  const relatedHeadlines = headlines.filter((h) => {
+    const hay = `${h.title || ''} ${h.category || ''}`.toLowerCase();
+    const sport = (match.sport || '').toLowerCase();
+    return hay.includes(sport) || hay.includes((match.teamA?.name || '').toLowerCase().split(' ')[0]);
+  }).slice(0, 3);
 
   const share = async () => {
     await shareMatch(match);
@@ -105,6 +120,7 @@ export default function MatchCommandCenter() {
   };
 
   const ogShareUrl = apiUrl(`/api/og/${match.id}`);
+  const statusLabel = isUpcoming ? 'Preview' : match.status === 'finished' ? 'Result' : 'Live';
 
   const ScoreHeader = () => (
     <Card className="overflow-hidden border-border bg-surface-1">
@@ -112,6 +128,7 @@ export default function MatchCommandCenter() {
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <SportPill sport={match.sport} />
           {match.status === 'live' && <LiveBadge />}
+          {isUpcoming && <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs uppercase tracking-wide text-accent">Upcoming</span>}
           <span className="text-sm text-muted">{match.league}</span>
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
@@ -149,7 +166,11 @@ export default function MatchCommandCenter() {
         <h3 className="mb-4 font-display font-semibold">Live timeline</h3>
         {timelineError && <p className="text-sm text-muted">{timelineError}</p>}
         {!timelineError && timeline.length === 0 && (
-          <p className="text-sm text-muted">Event timeline appears when API data is available.</p>
+          <p className="text-sm text-muted">
+            {isUpcoming
+              ? 'Timeline starts when the match goes live.'
+              : 'Event timeline appears when API data is available.'}
+          </p>
         )}
         <ul className="max-h-80 space-y-2 overflow-y-auto text-sm">
           {timeline.slice(0, 30).map((ev, i) => (
@@ -164,12 +185,47 @@ export default function MatchCommandCenter() {
     </Card>
   );
 
+  const ContextLinks = () => (
+    <Card>
+      <CardContent className="space-y-3 p-5">
+        <h3 className="font-display text-sm font-semibold">Go deeper</h3>
+        <div className="grid gap-2">
+          <Button asChild variant="secondary" size="sm" className="justify-start">
+            <Link to="/standings"><BarChart3 className="mr-2 h-4 w-4" />League standings</Link>
+          </Button>
+          <Button asChild variant="secondary" size="sm" className="justify-start">
+            <Link to="/arena"><Trophy className="mr-2 h-4 w-4" />Prediction Arena</Link>
+          </Button>
+          <Button asChild variant="secondary" size="sm" className="justify-start">
+            <Link to="/blog"><BookOpen className="mr-2 h-4 w-4" />Related stories</Link>
+          </Button>
+        </div>
+        {relatedHeadlines.length > 0 && (
+          <ul className="space-y-2 border-t border-border-subtle pt-3">
+            {relatedHeadlines.map((h) => (
+              <li key={h.slug || h.title}>
+                <a
+                  href={h.sourceUrl || '/blog'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="line-clamp-2 text-xs text-muted hover:text-accent"
+                >
+                  {h.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="mx-auto max-w-7xl">
       <Helmet>
-        <title>{`${match.teamA?.name} vs ${match.teamB?.name} — Live | Esportsduniya`}</title>
-        <meta name="description" content={`Live score and AI analysis for ${match.teamA?.name} vs ${match.teamB?.name}. ${match.league || ''}`} />
-        <meta property="og:title" content={`${match.teamA?.name} vs ${match.teamB?.name} — Live Score`} />
+        <title>{`${match.teamA?.name} vs ${match.teamB?.name} — ${statusLabel} | Esportsduniya`}</title>
+        <meta name="description" content={`${statusLabel} score and AI analysis for ${match.teamA?.name} vs ${match.teamB?.name}. ${match.league || ''}`} />
+        <meta property="og:title" content={`${match.teamA?.name} vs ${match.teamB?.name} — ${statusLabel} Score`} />
         <meta property="og:description" content={`${match.teamA?.score ?? ''} - ${match.teamB?.score ?? ''} · ${match.league || match.sport}`} />
         <meta property="og:url" content={`https://esportsduniya.in/match/${match.id}`} />
         <meta property="og:image" content={ogShareUrl} />
@@ -208,21 +264,45 @@ export default function MatchCommandCenter() {
         <div className={cn('space-y-6 lg:col-span-3', mobileTab !== 'overview' && 'hidden lg:block')}>
           <ScoreHeader />
           <MatchMomentum match={match} />
+          <ContextLinks />
         </div>
 
         <div className={cn('space-y-6 lg:col-span-5', mobileTab === 'predict' && 'hidden lg:block')}>
-          <Tabs value={directorMode} onValueChange={setDirectorMode}>
-            <TabsList>
-              <TabsTrigger value="casual">Casual</TabsTrigger>
-              <TabsTrigger value="fantasy">Fantasy</TabsTrigger>
-              <TabsTrigger value="tactical">Tactical</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <div className={cn(mobileTab !== 'ai' && 'hidden lg:block')}>
-            <MatchNarrative match={match} tone={toneMap[directorMode]} />
-          </div>
+          {isUpcoming ? (
+            <div className={cn(mobileTab !== 'ai' && mobileTab !== 'overview' && 'hidden lg:block')}>
+              <PreGameBrief match={match} />
+            </div>
+          ) : (
+            <>
+              <Tabs value={directorMode} onValueChange={setDirectorMode}>
+                <TabsList>
+                  <TabsTrigger value="casual">Casual</TabsTrigger>
+                  <TabsTrigger value="fantasy">Fantasy</TabsTrigger>
+                  <TabsTrigger value="tactical">Tactical</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <div className={cn(mobileTab !== 'ai' && 'hidden lg:block')}>
+                <MatchNarrative match={match} tone={toneMap[directorMode]} />
+              </div>
+            </>
+          )}
           <div className={cn(mobileTab === 'overview' && 'block', mobileTab !== 'overview' && 'hidden lg:block')}>
-            <TimelinePanel />
+            {isUpcoming ? (
+              <Card>
+                <CardContent className="space-y-3 p-5">
+                  <h3 className="font-display font-semibold">Before kickoff</h3>
+                  <p className="text-sm text-muted">
+                    Lock your prediction early, check form on standings, and come back for live AI commentary once the match starts.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => setMobileTab('predict')}>Make a prediction</Button>
+                    <Button asChild size="sm" variant="secondary"><Link to="/standings">View standings</Link></Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <TimelinePanel />
+            )}
           </div>
         </div>
 

@@ -74,7 +74,43 @@ export default function PredictionArena() {
       ) : error ? (
         <p className="text-muted">{error}</p>
       ) : (
-        <DataTable columns={columns} data={standings.map((s, i) => ({ ...s, id: s.username, rank: i + 1 }))} emptyMessage="No arena standings yet." />
+        <Tabs defaultValue="season">
+          <TabsList className="mb-4">
+            <TabsTrigger value="season">Season board</TabsTrigger>
+            <TabsTrigger value="rivalries">Rivalries</TabsTrigger>
+          </TabsList>
+          <TabsContent value="season">
+            <DataTable columns={columns} data={standings.map((s, i) => ({ ...s, id: s.username, rank: i + 1 }))} emptyMessage="No arena standings yet." />
+          </TabsContent>
+          <TabsContent value="rivalries">
+            <div className="grid gap-4 sm:grid-cols-3">
+              {[
+                { id: 'mi-csk', label: 'MI vs CSK' },
+                { id: 'ind-pak', label: 'IND vs PAK' },
+                { id: 'el-clasico', label: 'El Clásico' },
+              ].map((r) => {
+                const board = season?.rivalries?.[r.id] || [];
+                return (
+                  <div key={r.id} className="rounded-xl border border-border bg-surface-1 p-4">
+                    <p className="mb-3 text-sm font-medium text-foreground">{r.label}</p>
+                    {board.length === 0 ? (
+                      <p className="text-xs text-muted">No rivalry picks yet — lock predictions on these fixtures.</p>
+                    ) : (
+                      <ul className="space-y-2 text-xs">
+                        {board.slice(0, 5).map((row, i) => (
+                          <li key={row.username} className="flex justify-between text-muted">
+                            <span>#{i + 1} {row.username}</span>
+                            <span className="font-data text-foreground">{row.wins ?? 0}W</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </TabsContent>
+        </Tabs>
       )}
 
       <div className="mt-8">

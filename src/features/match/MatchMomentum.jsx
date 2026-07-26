@@ -10,6 +10,7 @@ export function MatchMomentum({ match }) {
   useEffect(() => {
     if (!match || match.status === 'upcoming') {
       setLoading(false);
+      setData(null);
       return;
     }
     setLoading(true);
@@ -19,9 +20,30 @@ export function MatchMomentum({ match }) {
       .finally(() => setLoading(false));
   }, [match]);
 
-  const momentum = data?.momentum ?? match?.momentum ?? 50;
-  const teamA = Math.max(5, Math.min(95, momentum));
-  const teamB = 100 - teamA;
+  const teamA = Math.max(
+    5,
+    Math.min(95, Number(data?.probA ?? data?.momentum ?? match?.momentum ?? 50))
+  );
+  const teamB = Math.max(
+    5,
+    Math.min(95, Number(data?.probB ?? (100 - teamA)))
+  );
+  const keyMoments = Array.isArray(data?.keyMoments) ? data.keyMoments.slice(0, 3) : [];
+
+  if (match?.status === 'upcoming') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Momentum engine</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted">
+            Live win probability unlocks once kickoff or toss begins. Use the AI pre-match brief meanwhile.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -41,12 +63,24 @@ export function MatchMomentum({ match }) {
               <div className="bg-accent transition-all" style={{ width: `${teamA}%` }} />
               <div className="bg-surface-3 transition-all" style={{ width: `${teamB}%` }} />
             </div>
-            <p className="font-data text-sm text-muted">{teamA}% / {teamB}% win probability</p>
+            <p className="font-data text-sm text-muted">
+              {Math.round(teamA)}% / {Math.round(teamB)}% win probability
+            </p>
+            {data?.momentum_team && (
+              <p className="text-xs text-accent">Momentum with {data.momentum_team}</p>
+            )}
             {data?.unavailable ? (
               <p className="text-sm text-muted">Momentum analysis is temporarily unavailable.</p>
             ) : data?.summary ? (
               <p className="text-sm text-muted">{data.summary}</p>
             ) : null}
+            {keyMoments.length > 0 && (
+              <ul className="space-y-1 border-t border-border-subtle pt-3 text-xs text-muted">
+                {keyMoments.map((m, i) => (
+                  <li key={i}>· {typeof m === 'string' ? m : m.label || m.text || m.title}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </CardContent>

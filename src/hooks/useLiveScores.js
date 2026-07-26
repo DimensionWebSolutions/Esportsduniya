@@ -56,3 +56,24 @@ export function useStandings(sport = 'football') {
     staleTime: 300_000,
   });
 }
+
+export function useHighlights(limit = 6) {
+  return useQuery({
+    queryKey: ['highlights', limit],
+    queryFn: async () => {
+      const data = await fetch(apiUrl('/api/highlights')).then(r => r.json());
+      const list = Array.isArray(data) ? data : (data.highlights || []);
+      return list.slice(0, limit);
+    },
+    staleTime: 300_000,
+  });
+}
+
+export function useOraclePool(matchId) {
+  return useQuery({
+    queryKey: ['oracle-pool', matchId],
+    queryFn: () => fetch(apiUrl(`/api/oracle/${encodeURIComponent(matchId)}`), { cache: 'no-store' }).then(r => r.json()),
+    enabled: Boolean(matchId),
+    refetchInterval: 20_000,
+  });
+}

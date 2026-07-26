@@ -1,12 +1,24 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { RefreshCw, Radio, ExternalLink } from 'lucide-react';
+import {
+  RefreshCw,
+  Radio,
+  ExternalLink,
+  Trophy,
+  BarChart3,
+  Globe2,
+  BookOpen,
+  Sparkles,
+} from 'lucide-react';
 import { SPORTS } from '@/data/mockData.js';
 import { helmetForSport } from '@/data/sport-seo.js';
 import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hooks/useLiveScores';
 import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
+import { LiveBadge, SportPill } from '@/ui/badge';
+import DailyMissions from '@/components/DailyMissions.jsx';
+import HighlightsPanel from '@/components/HighlightsPanel.jsx';
 import { cn } from '@/lib/utils';
 
 function readPrefs() {
@@ -23,6 +35,13 @@ function readPrefs() {
     return { favSports: ['cricket', 'football'] };
   }
 }
+
+const DISCOVERY = [
+  { to: '/arena', label: 'Prediction Arena', desc: 'Lock picks. Climb the board.', icon: Trophy },
+  { to: '/standings', label: 'League tables', desc: 'Form, points, promotion fights.', icon: BarChart3 },
+  { to: '/crowdpulse', label: 'Crowd Pulse', desc: 'See where fans are leaning.', icon: Globe2 },
+  { to: '/blog', label: 'Stories', desc: 'Editorial wrap-ups and news.', icon: BookOpen },
+];
 
 export default function HomePage() {
   const { sport: sportParam } = useParams();
@@ -46,6 +65,8 @@ export default function HomePage() {
     return live(b) - live(a) || fav(b) - fav(a);
   });
 
+  const liveMatches = prioritized.filter(m => m.status === 'live');
+  const featured = liveMatches[0] || prioritized.find(m => m.status === 'upcoming') || prioritized[0];
   const liveCount = matches.filter(m => m.status === 'live').length;
   const pageMeta = helmetForSport(activeSport);
 
@@ -71,12 +92,55 @@ export default function HomePage() {
           <span className="text-xs font-medium uppercase tracking-widest text-muted">Live Sports Intelligence</span>
         </div>
         <h1 className="font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl text-balance">
-          Real-time scores. AI insights. Professional sports data.
+          Scores that talk back — with AI, predictions, and fan energy.
         </h1>
         <p className="mt-3 max-w-2xl text-lg text-muted">
-          Track live matches across five sports with momentum analysis, predictions, and editorial-grade match coverage.
+          Follow live cricket, football, NBA, tennis and F1. Cheer, predict, and get the story behind every swing in momentum.
         </p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Button asChild>
+            <Link to="/arena">Play Prediction Arena</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link to="/blog">Read tonight&apos;s stories</Link>
+          </Button>
+        </div>
       </div>
+
+      {featured && (
+        <button
+          type="button"
+          onClick={() => navigate(`/match/${featured.id}`)}
+          className="mb-8 w-full rounded-xl border border-accent/30 bg-gradient-to-br from-accent/10 via-surface-1 to-surface-1 p-5 text-left transition-colors hover:border-accent/50"
+        >
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Sparkles className="h-4 w-4 text-accent" />
+            <span className="text-xs font-medium uppercase tracking-widest text-accent">
+              {featured.status === 'live' ? 'Match of the moment' : 'Up next'}
+            </span>
+            <SportPill sport={featured.sport} />
+            {featured.status === 'live' && <LiveBadge />}
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="font-display text-2xl font-semibold tracking-tight text-foreground">
+                {featured.teamA?.name} vs {featured.teamB?.name}
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                {featured.league}
+                {featured.minute ? ` · ${featured.minute}` : ''}
+                {featured.venue ? ` · ${featured.venue}` : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="font-data text-3xl font-bold tracking-tight">
+                {featured.teamA?.score ?? '–'} <span className="text-muted">:</span> {featured.teamB?.score ?? '–'}
+              </p>
+              <p className="mt-1 text-xs text-accent">Open command center →</p>
+            </div>
+          </div>
+        </button>
+      )}
 
       {socialStats && (
         <div className="mb-8 grid grid-cols-3 gap-3 sm:grid-cols-3">
@@ -85,6 +149,22 @@ export default function HomePage() {
           <StatTile label="Sports" value={socialStats.sports ?? 5} />
         </div>
       )}
+
+      <DailyMissions />
+
+      <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {DISCOVERY.map(({ to, label, desc, icon: Icon }) => (
+          <Link
+            key={to}
+            to={to}
+            className="rounded-xl border border-border bg-surface-1 p-4 transition-colors hover:border-accent/40 hover:bg-surface-2"
+          >
+            <Icon className="mb-3 h-5 w-5 text-accent" strokeWidth={1.75} />
+            <p className="text-sm font-medium text-foreground">{label}</p>
+            <p className="mt-1 text-xs text-muted">{desc}</p>
+          </Link>
+        ))}
+      </div>
 
       <div className="mb-6 -mx-1 overflow-x-auto pb-1">
         <div className="flex min-w-max flex-wrap items-center gap-2 px-1">
@@ -123,6 +203,8 @@ export default function HomePage() {
         </div>
       )}
 
+      <HighlightsPanel />
+
       {headlines.length > 0 && (
         <Section title="Latest headlines" className="mb-8" description="Top sports news right now">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -151,12 +233,17 @@ export default function HomePage() {
       )}
 
       {trending.length > 0 && (
-        <Section title="Trending" className="mb-8">
+        <Section title="Trending" className="mb-8" description="What fans are watching across sports">
           <div className="flex flex-wrap gap-2">
-            {trending.slice(0, 6).map(t => (
-              <span key={t.sport || t.label} className="rounded-full border border-border bg-surface-1 px-3 py-1 text-xs text-muted">
+            {trending.slice(0, 8).map(t => (
+              <button
+                key={t.sport || t.label}
+                type="button"
+                onClick={() => t.sport && setSport(t.sport)}
+                className="rounded-full border border-border bg-surface-1 px-3 py-1 text-xs text-muted transition-colors hover:border-accent/40 hover:text-foreground"
+              >
                 {t.label || t.sport}
-              </span>
+              </button>
             ))}
           </div>
         </Section>
@@ -164,7 +251,7 @@ export default function HomePage() {
 
       <Section
         title={activeSport === 'all' ? 'All matches' : `${SPORTS.find(s => s.id === activeSport)?.label || activeSport} matches`}
-        description={`${prioritized.length} matches`}
+        description={`${prioritized.length} matches · tap any card for AI, Fan Zone, and predictions`}
       >
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
@@ -178,7 +265,14 @@ export default function HomePage() {
         ) : prioritized.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted">
             <p>No {activeSport === 'all' ? '' : `${activeSport} `}matches right now.</p>
-            <p className="mx-auto mt-3 max-w-md text-sm">Check back soon — schedules update throughout the day.</p>
+            <p className="mx-auto mt-3 max-w-md text-sm">
+              While you wait, jump into the Arena, check standings, or catch up on stories.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Button asChild size="sm"><Link to="/arena">Arena</Link></Button>
+              <Button asChild size="sm" variant="secondary"><Link to="/standings">Standings</Link></Button>
+              <Button asChild size="sm" variant="secondary"><Link to="/blog">Stories</Link></Button>
+            </div>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">

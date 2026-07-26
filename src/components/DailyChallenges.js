@@ -46,24 +46,28 @@ function getToday() {
   return new Date().toISOString().split('T')[0];
 }
 
-function getTodayChallenges() {
+export function getTodayChallenges() {
   const day = new Date().getDay();
   return CHALLENGE_SETS[day];
 }
 
-function getProgress(trackKey) {
+export function getProgress(trackKey) {
   const today = getToday();
   const val = localStorage.getItem(`${trackKey}_${today}`);
   return val ? parseInt(val, 10) : 0;
 }
 
-function isDone(challenge) {
+export function isDone(challenge) {
   return getProgress(challenge.trackKey) >= challenge.target;
 }
 
-function getCompletedToday() {
+export function getCompletedToday() {
   const key = `esd_challenges_${getToday()}`;
   return JSON.parse(localStorage.getItem(key) || '[]');
+}
+
+export function getChallengeStreak() {
+  return getStreak();
 }
 
 function markChallengeComplete(id) {
