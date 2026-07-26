@@ -10,6 +10,7 @@ const PAGES = [
   { label: 'Prediction Arena', path: '/arena', icon: Trophy },
   { label: 'Daily Sports Quiz', path: '/quiz', icon: Brain },
   { label: 'Standings', path: '/standings', icon: BarChart3 },
+  { label: 'World Cup Hub', path: '/fifa', icon: Trophy },
   { label: 'Leaderboard', path: '/leaderboard', icon: Users },
   { label: 'Time Machine', path: '/timemachine', icon: Clock },
   { label: 'Crowd Pulse', path: '/crowdpulse', icon: Users },
