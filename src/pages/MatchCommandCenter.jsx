@@ -17,6 +17,7 @@ import { MatchPreview } from '@/features/match/MatchPreview';
 import { MatchFanZone } from '@/features/match/MatchFanZone';
 import { MatchOracle } from '@/features/match/MatchOracle';
 import { MatchAskOracle } from '@/features/match/MatchAskOracle';
+import { MatchSocialPulse } from '@/features/match/MatchSocialPulse';
 import FantasyPicks from '@/components/FantasyPicks.jsx';
 import { cn } from '@/lib/utils';
 
@@ -212,6 +213,7 @@ export default function MatchCommandCenter() {
         <div className={cn('space-y-6 lg:col-span-3', mobileTab !== 'overview' && 'hidden lg:block')}>
           <ScoreHeader />
           <MatchMomentum match={match} />
+          <MatchSocialPulse match={match} />
         </div>
 
         <div className={cn('space-y-6 lg:col-span-5', mobileTab === 'predict' && 'hidden lg:block')}>
