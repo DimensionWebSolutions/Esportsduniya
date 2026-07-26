@@ -72,7 +72,13 @@ export default function TopicalHubPage({ hubKey }) {
 
       <Section
         title="Fixtures & results"
-        description={liveCount ? `${liveCount} live now · ${matches.length} on the card` : `${matches.length} matches on the card`}
+        description={
+          isLoading
+            ? 'Loading the latest card…'
+            : liveCount
+              ? `${liveCount} live now · ${matches.length} on the card`
+              : `${matches.length} matches on the card`
+        }
         className="mb-10"
       >
         {showingFallback && (

@@ -32,6 +32,15 @@ function scoreVerdict(score, total) {
   return 'Rough round — but you just learned five new facts.';
 }
 
+function pointsMessage(outcome, user) {
+  if (outcome.alreadyPlayed) return 'No extra points — today’s round was already scored.';
+  if (!user?.username) return 'Sign in before you play to turn correct answers into FanPoints.';
+  if (outcome.pointsAwarded > 0) {
+    return `+${outcome.pointsAwarded} FanPoints banked${outcome.perfect ? ', including the perfect-round bonus' : ''}.`;
+  }
+  return 'No points this round — one correct answer tomorrow is enough to bank some.';
+}
+
 export default function QuizPage() {
   const { user } = useAuth();
   const [answers, setAnswers] = useState({});
@@ -47,7 +56,7 @@ export default function QuizPage() {
   });
 
   const questions = data?.questions || [];
-  const stats = data?.stats;
+  const stats = outcome?.stats ?? data?.stats;
   const answeredCount = Object.keys(answers).length;
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
   const question = questions[current];
@@ -146,13 +155,7 @@ export default function QuizPage() {
                 <span className="font-data text-4xl font-bold text-accent">{outcome.score}/{outcome.total}</span>
                 <div className="min-w-0">
                   <p className="font-display text-lg font-semibold text-foreground">{scoreVerdict(outcome.score, outcome.total)}</p>
-                  <p className="mt-1 text-sm text-muted">
-                    {outcome.pointsAwarded > 0
-                      ? `+${outcome.pointsAwarded} FanPoints banked${outcome.perfect ? ' (includes the perfect-round bonus)' : ''}.`
-                      : outcome.alreadyPlayed
-                        ? 'No points this time — today’s round was already scored.'
-                        : 'Sign in before you play to turn correct answers into FanPoints.'}
-                  </p>
+                  <p className="mt-1 text-sm text-muted">{pointsMessage(outcome, user)}</p>
                   {outcome.stats?.streak > 0 && (
                     <p className="mt-1 flex items-center gap-1 text-sm text-muted">
                       <Flame className="h-4 w-4 text-live" />

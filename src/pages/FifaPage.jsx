@@ -61,7 +61,13 @@ export default function FifaPage() {
 
       <Section
         title="Football on today"
-        description={liveCount ? `${liveCount} live now` : 'Club and international fixtures from the live feed'}
+        description={
+          isLoading
+            ? 'Loading the latest card…'
+            : liveCount
+              ? `${liveCount} live now`
+              : 'Club and international fixtures from the live feed'
+        }
         className="mb-10"
         action={<Button variant="outline" size="sm" asChild><Link to="/sport/football">All football</Link></Button>}
       >
