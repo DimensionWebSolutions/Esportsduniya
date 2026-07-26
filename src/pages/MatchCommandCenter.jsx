@@ -14,6 +14,7 @@ import { MatchMomentum } from '@/features/match/MatchMomentum';
 import { MatchNarrative } from '@/features/match/MatchNarrative';
 import { MatchFanZone } from '@/features/match/MatchFanZone';
 import { MatchOracle } from '@/features/match/MatchOracle';
+import { MatchPreview } from '@/features/match/MatchPreview';
 import FantasyPicks from '@/components/FantasyPicks.jsx';
 import { reportChallengeProgress } from '@/features/engagement/challengeProgress';
 import { cn } from '@/lib/utils';
@@ -220,6 +221,11 @@ export default function MatchCommandCenter() {
               <TabsTrigger value="tactical">Tactical</TabsTrigger>
             </TabsList>
           </Tabs>
+          {match.status === 'upcoming' && (
+            <div className={cn(mobileTab === 'predict' && 'hidden lg:block')}>
+              <MatchPreview match={match} />
+            </div>
+          )}
           <div className={cn(mobileTab !== 'ai' && 'hidden lg:block')}>
             <MatchNarrative match={match} tone={toneMap[directorMode]} />
           </div>
