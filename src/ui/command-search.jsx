@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Command } from 'cmdk';
-import { Search, Trophy, Radio, BarChart3, Clock, Users, BookOpen, Settings } from 'lucide-react';
+import { Search, Trophy, Radio, BarChart3, Clock, Users, BookOpen, Brain, Settings } from 'lucide-react';
 import { Dialog, DialogContent } from '@/ui/dialog';
 import { cn } from '@/lib/utils';
 
 const PAGES = [
   { label: 'Live Scores', path: '/', icon: Radio },
   { label: 'Prediction Arena', path: '/arena', icon: Trophy },
+  { label: 'Daily Sports Quiz', path: '/quiz', icon: Brain },
   { label: 'Standings', path: '/standings', icon: BarChart3 },
   { label: 'Leaderboard', path: '/leaderboard', icon: Users },
   { label: 'Time Machine', path: '/timemachine', icon: Clock },

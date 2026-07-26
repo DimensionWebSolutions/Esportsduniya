@@ -7,6 +7,7 @@ import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hook
 import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
+import { DailyQuizTeaser } from '@/features/engagement/DailyQuizTeaser';
 import { cn } from '@/lib/utils';
 
 function readPrefs() {
@@ -149,6 +150,16 @@ export default function HomePage() {
           <Link to="/blog" className="mt-4 inline-block text-sm text-accent hover:underline">View all news →</Link>
         </Section>
       )}
+
+      <Section
+        title="Play along"
+        description="Two-minute detours between matches"
+        className="mb-8"
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <DailyQuizTeaser />
+        </div>
+      </Section>
 
       {trending.length > 0 && (
         <Section title="Trending" className="mb-8">

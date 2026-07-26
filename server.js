@@ -42,6 +42,13 @@ import { fetchAllSportsNews, newsItemsToHighlights } from './lib/news-feed.js';
 import { fetchStandingsForLeague, STANDINGS_SUPPORTED } from './lib/standings-feed.js';
 import { SITE_URL, STATIC_SITEMAP_PATHS, TOPICAL_HUBS } from './lib/seo-config.js';
 import {
+  getDailyQuiz,
+  gradeQuiz,
+  quizDateKey,
+  isValidDateKey,
+  toPublicQuestion,
+} from './lib/quiz-bank.js';
+import {
   renderSportHubPage,
   renderMatchPage,
   renderTopicalHubPage,
@@ -358,6 +365,7 @@ const userSchema = new mongoose.Schema({
   resetTokenExpiry:   { type: Date, default: null },
   dailyChallenges:    { type: mongoose.Schema.Types.Mixed, default: null },
   lastChallengeDate:  { type: String, default: null },
+  quizStats:          { type: mongoose.Schema.Types.Mixed, default: null },
   fantasyPicks:       { type: Array, default: [] },
   arenaStats:         {
     type: mongoose.Schema.Types.Mixed,
@@ -968,6 +976,32 @@ const FAN_POINT_ACTIONS = {
   first_prediction: 50,
 };
 
+const FAN_POINT_TIERS = [
+  { threshold: 500,  name: '🥉 Bronze Fan' },
+  { threshold: 1000, name: '🥈 Silver Fan' },
+  { threshold: 2500, name: '🥇 Gold Fan' },
+  { threshold: 5000, name: '💎 Diamond Fan' },
+];
+
+/** Builds the user updates for a FanPoints award, including any tier badges unlocked. */
+function buildFanPointsUpdate(user, points, reason) {
+  const fanPoints = (user.fanPoints || 0) + points;
+  const badges = [...(user.badges || [])];
+  const newBadges = [];
+  for (const tier of FAN_POINT_TIERS) {
+    if (fanPoints >= tier.threshold && !badges.find(b => b.name === tier.name)) {
+      badges.push({ name: tier.name, earnedAt: Date.now() });
+      newBadges.push(tier.name);
+    }
+  }
+  const activityLog = [
+    { type: 'points', data: { points, reason }, timestamp: Date.now() },
+    ...(user.activityLog || []),
+  ].slice(0, 50);
+
+  return { updates: { fanPoints, badges, activityLog }, newBadges };
+}
+
 app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
   const { username, action, reason } = req.body;
   if (!username || !action) return res.status(400).json({ error: 'username and action required' });
@@ -981,27 +1015,10 @@ app.post('/api/fanpoints/award', verifyToken, async (req, res) => {
     const user = await dbFindUser(username);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const newPoints = (user.fanPoints || 0) + points;
-    const badges = [...(user.badges || [])];
+    const { updates, newBadges } = buildFanPointsUpdate(user, points, reason || action);
+    const newPoints = updates.fanPoints;
 
-    const tiers = [
-      { threshold: 500,  name: '🥉 Bronze Fan' },
-      { threshold: 1000, name: '🥈 Silver Fan' },
-      { threshold: 2500, name: '🥇 Gold Fan' },
-      { threshold: 5000, name: '💎 Diamond Fan' },
-    ];
-    const newBadges = [];
-    for (const tier of tiers) {
-      if (newPoints >= tier.threshold && !badges.find(b => b.name === tier.name)) {
-        badges.push({ name: tier.name, earnedAt: Date.now() });
-        newBadges.push(tier.name);
-      }
-    }
-
-    const activityLog = [...(user.activityLog || [])];
-    activityLog.unshift({ type: 'points', data: { points, reason: reason || action }, timestamp: Date.now() });
-
-    await dbUpdateUser(username, { fanPoints: newPoints, badges, activityLog: activityLog.slice(0, 50) });
+    await dbUpdateUser(username, updates);
     const updated = await dbFindUser(username);
     console.log(`   🪙 FanPoints: +${points} to ${username} (${action}) → total: ${newPoints}`);
     res.json({ message: 'Points awarded', user: safeUser(updated), newBadges, totalPoints: newPoints });
@@ -3817,6 +3834,95 @@ cron.schedule('0 0 * * *', async () => {
     console.error('   ❌ Cron error:', err.message);
   }
 }, { timezone: 'UTC' });
+
+// ============================================
+// DAILY SPORTS QUIZ
+// ============================================
+
+function quizStatsPayload(stats, date) {
+  const safe = stats || {};
+  return {
+    played: safe.lastPlayedDate === date,
+    lastScore: safe.lastPlayedDate === date ? (safe.lastScore ?? 0) : null,
+    bestScore: safe.bestScore ?? 0,
+    streak: safe.streak ?? 0,
+    rounds: safe.rounds ?? 0,
+    correctAllTime: safe.correctAllTime ?? 0,
+  };
+}
+
+// ── Today's five questions (answers withheld until submit) ──
+app.get('/api/quiz/daily', optionalAuth, async (req, res) => {
+  const date = isValidDateKey(req.query.date) ? req.query.date : quizDateKey();
+  const { questions } = getDailyQuiz(date);
+
+  let stats = quizStatsPayload(null, date);
+  if (req.user?.username) {
+    try {
+      const user = await dbFindUser(req.user.username);
+      stats = quizStatsPayload(user?.quizStats, date);
+    } catch {
+      /* fall back to anonymous stats */
+    }
+  }
+
+  res.json({
+    date,
+    total: questions.length,
+    questions: questions.map(toPublicQuestion),
+    stats,
+  });
+});
+
+// ── Grade a submission, award FanPoints once per day for signed-in fans ──
+app.post('/api/quiz/submit', optionalAuth, async (req, res) => {
+  const today = quizDateKey();
+  const requested = isValidDateKey(req.body?.date) ? req.body.date : today;
+  const answers = req.body?.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+
+  const graded = gradeQuiz(requested, answers);
+  const response = { ...graded, pointsAwarded: 0, alreadyPlayed: false, newBadges: [], stats: quizStatsPayload(null, requested) };
+
+  if (!req.user?.username || requested !== today) {
+    return res.json(response);
+  }
+
+  try {
+    const user = await dbFindUser(req.user.username);
+    if (!user) return res.json(response);
+
+    const prev = user.quizStats || {};
+    if (prev.lastPlayedDate === today) {
+      return res.json({ ...response, alreadyPlayed: true, stats: quizStatsPayload(prev, today) });
+    }
+
+    const yesterday = quizDateKey(new Date(Date.now() - 86400000));
+    const quizStats = {
+      lastPlayedDate: today,
+      lastScore: graded.score,
+      bestScore: Math.max(prev.bestScore ?? 0, graded.score),
+      streak: prev.lastPlayedDate === yesterday ? (prev.streak ?? 0) + 1 : 1,
+      rounds: (prev.rounds ?? 0) + 1,
+      correctAllTime: (prev.correctAllTime ?? 0) + graded.score,
+    };
+
+    const { updates, newBadges } = buildFanPointsUpdate(user, graded.points, 'daily_quiz');
+    await dbUpdateUser(user.username, { ...updates, quizStats });
+
+    console.log(`   🧠 Quiz: ${user.username} scored ${graded.score}/${graded.total} (+${graded.points} pts)`);
+    res.json({
+      ...graded,
+      pointsAwarded: graded.points,
+      alreadyPlayed: false,
+      newBadges,
+      totalPoints: updates.fanPoints,
+      stats: quizStatsPayload(quizStats, today),
+    });
+  } catch (err) {
+    console.error('   ❌ Quiz submit:', err.message);
+    res.json(response);
+  }
+});
 
 // ============================================
 // FANTASY-LITE PICKS

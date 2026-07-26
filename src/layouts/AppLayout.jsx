@@ -9,6 +9,7 @@ import {
   Clock,
   Globe2,
   BookOpen,
+  Brain,
   LineChart,
   Shield,
   User,
@@ -30,6 +31,7 @@ import { hashToPath, pageIdToPath } from '@/utils/routes';
 const NAV_ITEMS = [
   { to: '/', label: 'Live', icon: Radio, end: true },
   { to: '/arena', label: 'Arena', icon: Trophy },
+  { to: '/quiz', label: 'Quiz', icon: Brain },
   { to: '/standings', label: 'Standings', icon: BarChart3 },
   { to: '/leaderboard', label: 'Rankings', icon: Users },
   { to: '/timemachine', label: 'History', icon: Clock },
