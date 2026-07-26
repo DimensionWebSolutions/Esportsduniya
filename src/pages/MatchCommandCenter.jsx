@@ -13,8 +13,10 @@ import { Tabs, TabsList, TabsTrigger } from '@/ui/tabs';
 import { Skeleton } from '@/ui/section';
 import { MatchMomentum } from '@/features/match/MatchMomentum';
 import { MatchNarrative } from '@/features/match/MatchNarrative';
+import { MatchPreview } from '@/features/match/MatchPreview';
 import { MatchFanZone } from '@/features/match/MatchFanZone';
 import { MatchOracle } from '@/features/match/MatchOracle';
+import { MatchAskOracle } from '@/features/match/MatchAskOracle';
 import FantasyPicks from '@/components/FantasyPicks.jsx';
 import { cn } from '@/lib/utils';
 
@@ -224,7 +226,7 @@ export default function MatchCommandCenter() {
             <MatchNarrative match={match} tone={toneMap[directorMode]} />
           </div>
           <div className={cn(mobileTab === 'overview' && 'block', mobileTab !== 'overview' && 'hidden lg:block')}>
-            <TimelinePanel />
+            {match.status === 'upcoming' ? <MatchPreview match={match} /> : <TimelinePanel />}
           </div>
         </div>
 
@@ -234,6 +236,9 @@ export default function MatchCommandCenter() {
           </div>
           <div className={cn(mobileTab === 'predict' ? 'block' : 'hidden lg:block')}>
             <MatchOracle match={match} sport={match.sport} />
+          </div>
+          <div className={cn(mobileTab === 'predict' ? 'block' : 'hidden lg:block')}>
+            <MatchAskOracle match={match} />
           </div>
         </div>
       </div>

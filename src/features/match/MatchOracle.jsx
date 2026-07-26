@@ -71,7 +71,7 @@ export function MatchOracle({ match, sport }) {
             <Button
               key={key}
               variant={selected === key ? 'default' : 'outline'}
-              className="h-auto py-3 text-left"
+              className="h-auto whitespace-normal break-words py-3 text-left"
               onClick={() => setSelected(key)}
             >
               {key === 'teamA' ? match.teamA?.name : match.teamB?.name}
