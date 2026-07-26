@@ -1,9 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiUrl } from '@/config/apiBase';
+import { usePublicStats, useTrending } from '@/hooks/useLiveScores';
 import { DashboardLayout } from '@/layouts/PageLayouts';
 import { StatTile } from '@/ui/section';
 import { Card, CardContent } from '@/ui/card';
 import { Skeleton } from '@/ui/section';
+
+const SOURCE_LABEL = {
+  curated: 'Curated (no live AI key)',
+  ai: 'AI estimate (Gemini + Search)',
+};
 
 export default function CrowdPulsePage() {
   const { data, isLoading } = useQuery({
@@ -11,18 +17,42 @@ export default function CrowdPulsePage() {
     queryFn: () => fetch(apiUrl('/api/crowdpulse')).then(r => r.json()),
     staleTime: 120_000,
   });
+  const { data: socialStats } = usePublicStats();
+  const { data: trending = [] } = useTrending();
 
   const regions = data?.regions || [];
-  const totalFans = regions.reduce((sum, r) => {
-    const n = parseFloat(String(r.fans || '0').replace(/[^0-9.]/g, '')) || 0;
-    return sum + n;
-  }, 0);
 
   return (
     <DashboardLayout
       title="Crowd Pulse"
-      description="Global fan activity and regional engagement intensity."
+      description="Real platform activity, plus a global fan-intensity estimate."
     >
+      <div className="mb-8 space-y-3">
+        <h2 className="font-display text-lg font-semibold">Live on Esportsduniya</h2>
+        <p className="text-sm text-muted">Real numbers from our own platform — not an estimate.</p>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatTile label="Fans on the platform" value={socialStats?.users?.toLocaleString() ?? '—'} />
+          <StatTile label="Predictions locked" value={socialStats?.predictions?.toLocaleString() ?? '—'} />
+          <StatTile label="Sports tracked" value={socialStats?.sports ?? 5} />
+        </div>
+        {trending.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {trending.map(t => (
+              <span key={t.sport || t.label} className="rounded-full border border-border bg-surface-1 px-3 py-1 text-xs text-muted">
+                {t.icon || '🔥'} {t.label || t.sport}{t.count > 0 ? ` trending · ${t.count} views` : ' trending'}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mb-8 space-y-1 border-t border-border pt-6">
+        <h2 className="font-display text-lg font-semibold">Global fan intensity</h2>
+        <p className="text-sm text-muted">
+          {data?.source ? SOURCE_LABEL[data.source] || data.source : 'Loading source…'} — a directional estimate of where fans are most active worldwide right now, not a measured feed.
+        </p>
+      </div>
+
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
         <StatTile label="Regions tracked" value={regions.length} />
         <StatTile label="Data source" value={data?.source || '—'} />
