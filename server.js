@@ -40,7 +40,7 @@ import {
 import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS, SPORT_BY_ID } from './lib/sports-registry.js';
 import { fetchAllSportsNews, newsItemsToHighlights } from './lib/news-feed.js';
 import { fetchStandingsForLeague, STANDINGS_SUPPORTED } from './lib/standings-feed.js';
-import { SITE_URL, STATIC_SITEMAP_PATHS, TOPICAL_HUBS } from './lib/seo-config.js';
+import { SITE_URL, STATIC_SITEMAP_PATHS, TOPICAL_HUBS, hubMatchFilter } from './lib/seo-config.js';
 import {
   getDailyQuiz,
   gradeQuiz,
@@ -4196,7 +4196,7 @@ app.get('/match/:matchId', async (req, res) => {
 app.get('/cricket/ipl-2026', async (req, res) => {
   try {
     const result = await getRealSportLive('cricket');
-    const matches = (result?.matches || []).filter(m => /ipl|premier league/i.test(m.league || m.name || ''));
+    const matches = (result?.matches || []).filter(hubMatchFilter('cricket/ipl-2026'));
     const html = renderTopicalHubPage('cricket/ipl-2026', matches.length ? matches : result?.matches || []);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=300');
@@ -4209,7 +4209,7 @@ app.get('/cricket/ipl-2026', async (req, res) => {
 app.get('/football/premier-league', async (req, res) => {
   try {
     const result = await getRealSportLive('football');
-    const matches = (result?.matches || []).filter(m => /premier league|epl|pl/i.test(m.league || ''));
+    const matches = (result?.matches || []).filter(hubMatchFilter('football/premier-league'));
     const html = renderTopicalHubPage('football/premier-league', matches.length ? matches : result?.matches || []);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=300');
