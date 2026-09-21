@@ -19,6 +19,8 @@ const CrowdPulsePage = lazy(() => import('@/pages/CrowdPulsePage.jsx'));
 const TimeMachinePage = lazy(() => import('@/pages/TimeMachinePage.jsx'));
 const FifaPage = lazy(() => import('@/pages/FifaPage.jsx'));
 const TopicalHubPage = lazy(() => import('@/pages/TopicalHubPage.jsx'));
+const DailyQuiz = lazy(() => import('@/pages/DailyQuiz.jsx'));
+const FantasyDraftRoom = lazy(() => import('@/pages/FantasyDraftRoom.jsx'));
 
 const PrivacyPolicy = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.TermsOfService })));
@@ -76,6 +78,8 @@ export default function App() {
           <Route path="timemachine" element={<TimeMachinePage />} />
           <Route path="crowdpulse" element={<CrowdPulsePage />} />
           <Route path="fifa" element={<FifaPage />} />
+          <Route path="quiz" element={<DailyQuiz />} />
+          <Route path="fantasy" element={<FantasyDraftRoom />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="admin" element={<AdminRoute />} />
           <Route path="analytics" element={<AnalyticsPage />} />

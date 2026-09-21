@@ -15,6 +15,7 @@ import { MatchNarrative } from '@/features/match/MatchNarrative';
 import { MatchFanZone } from '@/features/match/MatchFanZone';
 import { MatchOracle } from '@/features/match/MatchOracle';
 import FantasyPicks from '@/components/FantasyPicks.jsx';
+import AtmosphereScore from '@/components/AtmosphereScore.jsx';
 import { cn } from '@/lib/utils';
 
 export default function MatchCommandCenter() {
@@ -207,6 +208,7 @@ export default function MatchCommandCenter() {
       <div className="grid gap-6 lg:grid-cols-12">
         <div className={cn('space-y-6 lg:col-span-3', mobileTab !== 'overview' && 'hidden lg:block')}>
           <ScoreHeader />
+          <AtmosphereScore match={match} />
           <MatchMomentum match={match} />
         </div>
 

@@ -16,6 +16,7 @@ import {
   LogOut,
   Menu,
   Zap,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -23,12 +24,15 @@ import { Button } from '@/ui/button';
 import { CommandSearch } from '@/ui/command-search';
 import { AuthModal } from '@/ui/auth-modal';
 import MomentEngine from '@/components/MomentEngine.jsx';
+import LiveScoreTicker from '@/components/LiveScoreTicker.jsx';
 import { initLiveScoreManager } from '@/services/LiveScoreManager.js';
 import SiteFooter from '@/components/SiteFooter.jsx';
 import { hashToPath, pageIdToPath } from '@/utils/routes';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Live', icon: Radio, end: true },
+  { to: '/fantasy', label: 'Fantasy', icon: Shield },
+  { to: '/quiz', label: 'Quiz', icon: Sparkles },
   { to: '/arena', label: 'Arena', icon: Trophy },
   { to: '/standings', label: 'Standings', icon: BarChart3 },
   { to: '/leaderboard', label: 'Rankings', icon: Users },
@@ -40,8 +44,9 @@ const NAV_ITEMS = [
 
 const MOBILE_NAV = [
   { to: '/', label: 'Live', icon: Radio, end: true },
+  { to: '/fantasy', label: 'Fantasy', icon: Shield },
+  { to: '/quiz', label: 'Quiz', icon: Sparkles },
   { to: '/arena', label: 'Arena', icon: Trophy },
-  { to: '/crowdpulse', label: 'Pulse', icon: Globe2 },
   { to: '/profile', label: 'Account', icon: User },
 ];
 
@@ -176,6 +181,8 @@ export default function AppLayout() {
           user={user}
           onLogout={logout}
         />
+
+        <LiveScoreTicker />
 
         <main className="flex-1 px-4 py-6 pb-24 lg:px-8 lg:pb-8">
           <Outlet context={{ openLogin }} />

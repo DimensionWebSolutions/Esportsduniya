@@ -9,6 +9,7 @@ import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { StatTile, Skeleton } from '@/ui/section';
 import { SportPill } from '@/ui/badge';
+import FanPassport from '@/components/FanPassport';
 
 export default function ProfilePage() {
   const { user: authUser, token } = useAuth();
@@ -66,6 +67,10 @@ export default function ProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      <div className="mb-8">
+        <FanPassport user={{ ...user, predictions: preds }} />
+      </div>
 
       <Card>
         <CardHeader><CardTitle>Prediction history</CardTitle></CardHeader>

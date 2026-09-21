@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { RefreshCw, Radio, ExternalLink } from 'lucide-react';
+import { RefreshCw, Radio, ExternalLink, Sparkles, Swords, Trophy, Flame } from 'lucide-react';
 import { SPORTS } from '@/data/mockData.js';
 import { helmetForSport } from '@/data/sport-seo.js';
 import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hooks/useLiveScores';
@@ -8,6 +8,8 @@ import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
 import { cn } from '@/lib/utils';
+import SportHeroBanner from '@/components/SportHeroBanner.jsx';
+import MatchCountdown from '@/components/MatchCountdown.jsx';
 
 function readPrefs() {
   try {
@@ -65,17 +67,65 @@ export default function HomePage() {
         )}
       </Helmet>
 
-      <div className="mb-8">
-        <div className="mb-4 flex items-center gap-2">
-          <Radio className="h-4 w-4 text-live" />
-          <span className="text-xs font-medium uppercase tracking-widest text-muted">Live Sports Intelligence</span>
-        </div>
-        <h1 className="font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl text-balance">
-          Real-time scores. AI insights. Professional sports data.
-        </h1>
-        <p className="mt-3 max-w-2xl text-lg text-muted">
-          Track live matches across five sports with momentum analysis, predictions, and editorial-grade match coverage.
-        </p>
+      {matches.length > 0 && (
+        <SportHeroBanner matches={prioritized} />
+      )}
+
+      {/* Quick Action Interactive Hub */}
+      <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Link
+          to="/fantasy"
+          className="group relative overflow-hidden rounded-xl border border-blue-500/20 bg-gradient-to-br from-blue-950/40 via-surface-1 to-surface-1 p-4 transition-all hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/20 text-blue-400 group-hover:scale-110 transition-transform">
+              <Swords className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-display text-sm font-semibold text-foreground">Fantasy Draft</span>
+                <span className="rounded-full bg-blue-500/20 px-1.5 py-0.2 text-[10px] font-bold text-blue-400 uppercase tracking-wider">New</span>
+              </div>
+              <p className="text-xs text-muted">Build Dream Squad · 100M Cap</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          to="/quiz"
+          className="group relative overflow-hidden rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-950/40 via-surface-1 to-surface-1 p-4 transition-all hover:border-amber-500/50 hover:shadow-lg hover:shadow-amber-500/10"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 group-hover:scale-110 transition-transform">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-display text-sm font-semibold text-foreground">Daily Sports Trivia</span>
+                <span className="rounded-full bg-amber-500/20 px-1.5 py-0.2 text-[10px] font-bold text-amber-400 uppercase tracking-wider">Streak</span>
+              </div>
+              <p className="text-xs text-muted">5 Questions · 20s Blitz</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          to="/arena"
+          className="group relative overflow-hidden rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/40 via-surface-1 to-surface-1 p-4 transition-all hover:border-emerald-500/50 hover:shadow-lg hover:shadow-emerald-500/10"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 group-hover:scale-110 transition-transform">
+              <Flame className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-display text-sm font-semibold text-foreground">Prediction Arena</span>
+                <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Live</span>
+              </div>
+              <p className="text-xs text-muted">Pick Outcomes · Climb Ranks</p>
+            </div>
+          </div>
+        </Link>
       </div>
 
       {socialStats && (
@@ -88,20 +138,20 @@ export default function HomePage() {
 
       <div className="mb-6 -mx-1 overflow-x-auto pb-1">
         <div className="flex min-w-max flex-wrap items-center gap-2 px-1">
-        {SPORTS.map(s => (
-          <Button
-            key={s.id}
-            variant={activeSport === s.id ? 'default' : 'secondary'}
-            size="sm"
-            onClick={() => setSport(s.id)}
-          >
-            {s.label}
+          {SPORTS.map(s => (
+            <Button
+              key={s.id}
+              variant={activeSport === s.id ? 'default' : 'secondary'}
+              size="sm"
+              onClick={() => setSport(s.id)}
+            >
+              {s.label}
+            </Button>
+          ))}
+          <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} className="ml-auto">
+            <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
+            Refresh
           </Button>
-        ))}
-        <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} className="ml-auto">
-          <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
-          Refresh
-        </Button>
         </div>
       </div>
 
@@ -158,6 +208,19 @@ export default function HomePage() {
                 {t.label || t.sport}
               </span>
             ))}
+          </div>
+        </Section>
+      )}
+
+      {prioritized.filter(m => m.status === 'upcoming' || m.status === 'scheduled').length > 0 && (
+        <Section title="Upcoming Showdowns" className="mb-8" description="Countdowns and kickoff reminders">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {prioritized
+              .filter(m => m.status === 'upcoming' || m.status === 'scheduled')
+              .slice(0, 3)
+              .map(m => (
+                <MatchCountdown key={m.id} match={m} />
+              ))}
           </div>
         </Section>
       )}
