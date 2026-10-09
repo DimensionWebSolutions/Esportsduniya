@@ -7,23 +7,19 @@ import { useLiveScores, usePublicStats, useTrending, useHeadlines } from '@/hook
 import { MatchCard, MatchCardSkeleton } from '@/ui/match-card';
 import { Button } from '@/ui/button';
 import { Section, StatTile } from '@/ui/section';
-import { cn } from '@/lib/utils';
+import { cn, safeReadStorageJson } from '@/lib/utils';
 import SportHeroBanner from '@/components/SportHeroBanner.jsx';
 import MatchCountdown from '@/components/MatchCountdown.jsx';
 
 function readPrefs() {
-  try {
-    const user = JSON.parse(localStorage.getItem('user') || 'null');
-    const onboarding = JSON.parse(localStorage.getItem('esd_onboarding') || 'null');
-    const favSports = user?.preferences?.favoriteSports?.length
-      ? user.preferences.favoriteSports
-      : onboarding?.sports?.length
-        ? onboarding.sports
-        : ['cricket', 'football'];
-    return { favSports };
-  } catch {
-    return { favSports: ['cricket', 'football'] };
-  }
+  const user = safeReadStorageJson('user', null);
+  const onboarding = safeReadStorageJson('esd_onboarding', null);
+  const favSports = user?.preferences?.favoriteSports?.length
+    ? user.preferences.favoriteSports
+    : onboarding?.sports?.length
+      ? onboarding.sports
+      : ['cricket', 'football'];
+  return { favSports };
 }
 
 export default function HomePage() {

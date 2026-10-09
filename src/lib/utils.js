@@ -1,6 +1,43 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+export function safeStorageGet(key, fallback = null) {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const value = window.localStorage.getItem(key);
+    return value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function safeStorageRemove(key) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore localStorage access errors and keep the app usable.
+  }
+}
+
+export function safeParseJson(value, fallback = null) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+export function safeReadStorageJson(key, fallback = null) {
+  return safeParseJson(safeStorageGet(key), fallback);
+}
+
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }

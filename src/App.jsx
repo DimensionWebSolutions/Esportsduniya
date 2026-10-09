@@ -4,6 +4,7 @@ import AppLayout from '@/layouts/AppLayout.jsx';
 import HomePage from '@/pages/HomePage.jsx';
 import { trackPageView } from '@/services/analytics.js';
 import { registerServiceWorker, startReminderChecker } from '@/components/NotificationHelper.js';
+import { safeReadStorageJson } from '@/lib/utils';
 import { Skeleton } from '@/ui/section';
 
 const MatchCommandCenter = lazy(() => import('@/pages/MatchCommandCenter.jsx'));
@@ -41,7 +42,7 @@ function PageLoader() {
 }
 
 function AdminRoute() {
-  const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const storedUser = safeReadStorageJson('user', {});
   if (!storedUser?.isAdmin) {
     return (
       <div className="rounded-xl border border-border bg-surface-1 p-12 text-center">

@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { safeStorageRemove } from '@/lib/utils';
 import App from './App.jsx';
 
 const queryClient = new QueryClient({
@@ -16,8 +17,8 @@ const queryClient = new QueryClient({
 function Root() {
   useEffect(() => {
     window.esportsLogout = () => {
-      localStorage.removeItem('user');
-      localStorage.removeItem('token');
+      safeStorageRemove('user');
+      safeStorageRemove('token');
       window.location.href = '/';
     };
     const loader = document.getElementById('app-loader');

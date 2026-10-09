@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
+import { safeReadStorageJson, safeStorageGet, safeStorageRemove } from '@/lib/utils';
 
 function readUser() {
-  try {
-    return JSON.parse(localStorage.getItem('user') || 'null');
-  } catch {
-    return null;
-  }
+  return safeReadStorageJson('user', null);
 }
 
 export function useAuth() {
   const [user, setUser] = useState(readUser);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = typeof window !== 'undefined' ? safeStorageGet('token') : null;
 
   const sync = useCallback(() => setUser(readUser()), []);
 
@@ -24,8 +21,8 @@ export function useAuth() {
   }, [sync]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
+    safeStorageRemove('user');
+    safeStorageRemove('token');
     setUser(null);
     window.location.href = '/';
   }, []);
