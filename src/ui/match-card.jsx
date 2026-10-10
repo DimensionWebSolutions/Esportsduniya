@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
-import { Share2, MessageCircle } from 'lucide-react';
+import { Share2, MessageCircle, Star } from 'lucide-react';
 import { cn, sportBg } from '@/lib/utils';
+import { isTeamFollowed } from '@/lib/followed-teams';
 import { Card, CardContent } from '@/ui/card';
 import { Badge, LiveBadge, SportPill } from '@/ui/badge';
 import { Button } from '@/ui/button';
@@ -12,7 +13,7 @@ function StatusBadge({ status }) {
   return <Badge variant="finished">Final</Badge>;
 }
 
-export function MatchCard({ match, onClick, href, className }) {
+export function MatchCard({ match, onClick, href, className, followedTeams, onFollowTeam }) {
   if (!match) return null;
 
   const matchPath = href || `/match/${match.id}`;
@@ -27,6 +28,12 @@ export function MatchCard({ match, onClick, href, className }) {
     e.preventDefault();
     e.stopPropagation();
     shareMatchWhatsApp(match);
+  };
+
+  const handleFollowTeam = (e, teamName) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onFollowTeam?.(teamName, match.sport);
   };
 
   const handleCardClick = (e) => {
@@ -61,11 +68,41 @@ export function MatchCard({ match, onClick, href, className }) {
         <div className="space-y-3 px-4 py-4">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <span className="min-w-0 truncate font-medium text-foreground">{match.teamA?.name}</span>
-            <span className="shrink-0 font-data text-lg font-semibold tabular-nums text-foreground">{match.teamA?.score ?? '–'}</span>
+            <div className="flex shrink-0 items-center gap-2">
+              {onFollowTeam && match.teamA?.name && (
+                <button
+                  type="button"
+                  onClick={e => handleFollowTeam(e, match.teamA.name)}
+                  aria-label={`${isTeamFollowed(followedTeams, match.teamA.name, match.sport) ? 'Unfollow' : 'Follow'} ${match.teamA.name}`}
+                  title={`${isTeamFollowed(followedTeams, match.teamA.name, match.sport) ? 'Unfollow' : 'Follow'} ${match.teamA.name}`}
+                  className="rounded p-1 text-muted transition-colors hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <Star
+                    className={cn('h-4 w-4', isTeamFollowed(followedTeams, match.teamA.name, match.sport) && 'fill-amber-400 text-amber-400')}
+                  />
+                </button>
+              )}
+              <span className="font-data text-lg font-semibold tabular-nums text-foreground">{match.teamA?.score ?? '–'}</span>
+            </div>
           </div>
           <div className="flex min-w-0 items-center justify-between gap-3">
             <span className="min-w-0 truncate font-medium text-foreground">{match.teamB?.name}</span>
-            <span className="shrink-0 font-data text-lg font-semibold tabular-nums text-foreground">{match.teamB?.score ?? '–'}</span>
+            <div className="flex shrink-0 items-center gap-2">
+              {onFollowTeam && match.teamB?.name && (
+                <button
+                  type="button"
+                  onClick={e => handleFollowTeam(e, match.teamB.name)}
+                  aria-label={`${isTeamFollowed(followedTeams, match.teamB.name, match.sport) ? 'Unfollow' : 'Follow'} ${match.teamB.name}`}
+                  title={`${isTeamFollowed(followedTeams, match.teamB.name, match.sport) ? 'Unfollow' : 'Follow'} ${match.teamB.name}`}
+                  className="rounded p-1 text-muted transition-colors hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <Star
+                    className={cn('h-4 w-4', isTeamFollowed(followedTeams, match.teamB.name, match.sport) && 'fill-amber-400 text-amber-400')}
+                  />
+                </button>
+              )}
+              <span className="font-data text-lg font-semibold tabular-nums text-foreground">{match.teamB?.score ?? '–'}</span>
+            </div>
           </div>
         </div>
 

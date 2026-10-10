@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchLiveMatches, getLiveScoresMeta } from '@/services/apiService';
+import { fetchLiveMatches, fetchUpcomingMatches, getLiveScoresMeta } from '@/services/apiService';
 import { apiUrl } from '@/config/apiBase';
 
 export function useLiveScores(sport = 'all') {
@@ -14,6 +14,15 @@ export function useLiveScores(sport = 'all') {
     },
     refetchInterval: 60_000,
     staleTime: 30_000,
+  });
+}
+
+export function useUpcomingMatches(sport = 'all', enabled = true) {
+  return useQuery({
+    queryKey: ['upcoming-matches', sport],
+    queryFn: () => fetchUpcomingMatches(sport),
+    enabled,
+    staleTime: 300_000,
   });
 }
 

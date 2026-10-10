@@ -51,6 +51,7 @@ function timeoutSignal(ms) {
 
 export function getLiveScoresMeta() {
     return {
+        source: lastLiveMeta.source,
         fetchedAt: lastLiveMeta.fetchedAt,
         stale: lastLiveMeta.stale,
         matchCount: lastLiveMeta.matchCount,
@@ -318,40 +319,28 @@ export async function fetchLiveMatches(sport = 'all', options = {}) {
  * Fetch Upcoming Matches (Schedule) for a specific sport
  */
 export async function fetchUpcomingMatches(sport) {
+    if (apiAvailable === null) await checkApiHealth();
     if (!apiAvailable) return [];
 
-    let results = [];
+    const schedules = [
+        { sport: 'football', endpoint: '/api/sports/football/upcoming', normalize: normalizeFootballMatch },
+        { sport: 'nba', endpoint: '/api/sports/nba/upcoming', normalize: normalizeNBAMatch },
+        { sport: 'tennis', endpoint: '/api/sports/tennis/upcoming', normalize: normalizeTennisMatch },
+        { sport: 'f1', endpoint: '/api/sports/f1/upcoming', normalize: normalizeF1Race },
+        { sport: 'cricket', endpoint: '/api/sports/cricket/upcoming', normalize: normalizeCricketMatch },
+    ].filter(schedule => sport === 'all' || sport === schedule.sport);
 
-    try {
-        if (sport === 'all' || sport === 'football') {
-            const data = await fetchInternal('/api/sports/football/upcoming');
-            results.push(...adoptMatches(data, normalizeFootballMatch));
+    const results = await Promise.all(schedules.map(async schedule => {
+        try {
+            const data = await fetchInternal(schedule.endpoint);
+            return adoptMatches(data, schedule.normalize);
+        } catch (err) {
+            console.warn(`[apiService] Upcoming matches fetch failed for ${schedule.sport}:`, err.message);
+            return [];
         }
+    }));
 
-        if (sport === 'all' || sport === 'nba') {
-            const data = await fetchInternal('/api/sports/nba/upcoming');
-            results.push(...adoptMatches(data, normalizeNBAMatch));
-        }
-
-        if (sport === 'all' || sport === 'tennis') {
-            const data = await fetchInternal('/api/sports/tennis/upcoming');
-            results.push(...adoptMatches(data, normalizeTennisMatch));
-        }
-
-        if (sport === 'all' || sport === 'f1') {
-            const data = await fetchInternal('/api/sports/f1/upcoming');
-            results.push(...adoptMatches(data, normalizeF1Race));
-        }
-
-        if (sport === 'all' || sport === 'cricket') {
-            const data = await fetchInternal('/api/sports/cricket/upcoming');
-            results.push(...adoptMatches(data, normalizeCricketMatch));
-        }
-    } catch (err) {
-        console.warn('[apiService] Upcoming matches fetch failed:', err.message);
-    }
-
-    return results;
+    return results.flat();
 }
 
 // ============================================
