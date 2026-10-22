@@ -6,9 +6,57 @@ services:
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
+      - key: NODE_ENV
+        value: production
+      # ── Required — server exits on boot without these in production ──
+      - key: JWT_SECRET
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      # ── Live scores ──
+      - key: FOOTBALL_DATA_KEY
+        sync: false
+      - key: CRICAPI_KEY
+        sync: false
+      - key: THESPORTSDB_API_KEY
+        sync: false
+      # ── News ──
+      - key: NEWSAPI_KEY
+        sync: false
+      # ── AI (optional) ──
       - key: GEMINI_API_KEY
         sync: false
       - key: RAPIDAPI_KEY
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      - key: ENABLE_AI_BLOG
+        value: "false"
+      # ── Payments (optional) ──
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # ── Web push (optional) ──
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_EMAIL
+        sync: false
+      # ── Email (optional) ──
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # ── Error tracking (optional) ──
+      - key: SENTRY_DSN
         sync: false
