@@ -266,9 +266,10 @@ function adoptMatches(items, normalizer) {
 
 function sanitizeScoreError(err) {
     if (!err) return null;
+    // Hide noisy/internal AI-provider errors — scores never depend on Gemini.
     if (/gemini|429|quota|generativelanguage|ai-search/i.test(String(err))) return null;
-    if (/key not configured|apisports|football.data|cricapi|thesportsdb/i.test(String(err))) return null;
-    return null;
+    // Surface everything else (missing key, provider down, etc.) so the UI/console shows the real reason.
+    return String(err);
 }
 
 /**
