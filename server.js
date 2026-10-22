@@ -76,11 +76,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://pagead2.googlesyndication.com", "https://*.googlesyndication.com", "https://*.google.com", "https://*.doubleclick.net", "https://*.adtrafficquality.google"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://esportsduniya.onrender.com", "wss://esportsduniya.onrender.com", "ws://localhost:*", "http://localhost:*"],
+      connectSrc: ["'self'", "https://esportsduniya.onrender.com", "wss://esportsduniya.onrender.com", "ws://localhost:*", "http://localhost:*", "https://*.googlesyndication.com", "https://*.google.com", "https://*.doubleclick.net", "https://*.adtrafficquality.google"],
+      frameSrc: ["'self'", "https://*.googlesyndication.com", "https://*.google.com", "https://*.doubleclick.net", "https://*.adtrafficquality.google"],
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -4757,6 +4758,8 @@ app.get('/blog', async (req, res) => {
 <meta name="twitter:description" content="Latest sports news and match previews." />
 <meta name="twitter:image" content="https://esportsduniya.in/og-cover.png" />
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Blog","name":"Esportsduniya Sports News","url":"https://esportsduniya.in/blog","description":"Latest sports headlines and news","publisher":{"@type":"Organization","name":"Esportsduniya","url":"https://esportsduniya.in","logo":{"@type":"ImageObject","url":"https://esportsduniya.in/og-cover.png"}}}</script>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4071579606034379"
+     crossorigin="anonymous"></script>
 <style>${BLOG_CSS}</style>
 </head>
 <body>
@@ -4858,6 +4861,8 @@ app.get('/blog/:slug', async (req, res) => {
 <meta name="twitter:description" content="${escapeHtml(article.metaDescription)}" />
 <meta name="twitter:image" content="https://esportsduniya.in/og-cover.png" />
 <script type="application/ld+json">${jsonLd}</script>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4071579606034379"
+     crossorigin="anonymous"></script>
 <style>${BLOG_CSS}</style>
 </head>
 <body>
