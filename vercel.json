@@ -1,0 +1,21 @@
+{
+  "redirects": [
+    { "source": "/dashboard", "destination": "/", "permanent": true }
+  ],
+  "rewrites": [
+    { "source": "/blog", "destination": "https://esportsduniya.onrender.com/blog" },
+    { "source": "/blog/:path*", "destination": "https://esportsduniya.onrender.com/blog/:path*" },
+    { "source": "/sport/:path*", "destination": "https://esportsduniya.onrender.com/sport/:path*" },
+    { "source": "/match/:path*", "destination": "https://esportsduniya.onrender.com/match/:path*" },
+    { "source": "/cricket/:path*", "destination": "https://esportsduniya.onrender.com/cricket/:path*" },
+    { "source": "/football/:path*", "destination": "https://esportsduniya.onrender.com/football/:path*" },
+    { "source": "/sitemap.xml", "destination": "https://esportsduniya.onrender.com/sitemap.xml" },
+    { "source": "/sitemap-app.xml", "destination": "https://esportsduniya.onrender.com/sitemap-app.xml" },
+    { "source": "/sitemap-matches.xml", "destination": "https://esportsduniya.onrender.com/sitemap-matches.xml" },
+    { "source": "/sitemap-blog.xml", "destination": "https://esportsduniya.onrender.com/sitemap-blog.xml" },
+
+    { "source": "/api/:path*", "destination": "https://esportsduniya.onrender.com/api/:path*" },
+
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
