@@ -1,12 +1,14 @@
-# Deployment Guide — Cloudflare Pages + Render
+# Deployment Guide — Vercel + Render
 
 ## Overview
 
 | Layer     | Service              | URL pattern                              |
 |-----------|----------------------|------------------------------------------|
-| Frontend  | Cloudflare Pages     | `https://esportsduniya.in`               |
+| Frontend  | Vercel                | `https://esportsduniya.in`               |
 | Backend   | Render               | `https://esportsduniya.onrender.com`     |
 | WebSocket | Render (same service)| `wss://esportsduniya.onrender.com`       |
+
+> **Note:** this project previously targeted Cloudflare Pages and used `public/_redirects` for proxying. That file is Cloudflare-only syntax and **Vercel ignores it entirely**. The frontend is now deployed on Vercel, so `vercel.json` at the repo root is the file that actually does the proxying/rewrites described below — keep both files in sync if you add a new SSR route, or drop `_redirects` if you're sure Cloudflare is no longer in the picture.
 
 ---
 
@@ -64,7 +66,7 @@ Expected health fields:
 
 ---
 
-## 2. Deploy Frontend to Cloudflare Pages
+## 2. Deploy Frontend to Vercel
 
 ### Build settings
 
@@ -72,34 +74,33 @@ Expected health fields:
 |-------------------|-----------------|
 | Framework preset  | Vite            |
 | Build command     | `npm run build` |
-| Build output dir  | `dist`          |
+| Output directory  | `dist`          |
 
 ### Production environment variables
 
 ```
-VITE_API_URL=https://esportsduniya.onrender.com
 VITE_WS_URL=wss://esportsduniya.onrender.com
-VITE_FOOTBALL_API_KEY=your_football-data_key
 VITE_GOOGLE_SITE_VERIFICATION=your_gsc_token
 VITE_SENTRY_DSN=https://your_sentry_dsn@sentry.io/project
 ```
 
-> `public/_redirects` proxies `/api/*`, `/blog/*`, `/sport/*`, `/match/*`, and sitemaps to Render for Google-indexable SSR HTML.
+> **Leave `VITE_API_URL` unset.** `vercel.json` at the repo root rewrites `/api/*`, `/blog/*`, `/sport/*`, `/match/*`, `/cricket/*`, `/football/*` and the sitemap paths to the Render backend server-side, and the SPA fallback serves `index.html` for every other route. If `VITE_API_URL` *is* set, the browser calls Render directly instead of going through the rewrite — that only works if the calling origin is in `server.js`'s `ALLOWED_ORIGINS` CORS list, so keep that list in sync with whatever domain(s) Vercel actually serves the site from (production domain + any preview `*.vercel.app` domains you rely on).
 
 ### SEO: canonical domain & Search Console
 
-1. **Cloudflare Redirect Rule**: `(http.host eq "www.esportsduniya.in")` → 301 → `https://esportsduniya.in/${uri.path}`
+1. **Vercel Project → Settings → Domains**: add `esportsduniya.in` as the production domain, and redirect `www.esportsduniya.in` → `esportsduniya.in` (Vercel does this automatically when you add both and mark one as the redirect target).
 2. **Google Search Console**: verify `esportsduniya.in`, submit sitemaps:
    - `https://esportsduniya.in/sitemap.xml`
    - `https://esportsduniya.in/sitemap-blog.xml`
-3. Set `VITE_GOOGLE_SITE_VERIFICATION` in Cloudflare Pages build env (HTML tag method).
+3. Set `VITE_GOOGLE_SITE_VERIFICATION` in Vercel's project environment variables (HTML tag method).
 
 ### Render env (production hardening)
 
 ```
 NODE_ENV=production
-MONGODB_URI=...          # required — server exits without it in production
-SENTRY_DSN=...           # optional backend error tracking
+JWT_SECRET=...            # required — server exits without it in production
+MONGODB_URI=...           # required — server exits without it in production
+SENTRY_DSN=...            # optional backend error tracking
 STRIPE_SECRET_KEY=...
 STRIPE_PRICE_ID=...
 STRIPE_WEBHOOK_SECRET=...
@@ -107,14 +108,14 @@ STRIPE_WEBHOOK_SECRET=...
 
 ### Deploy
 
-Push to `main` — Cloudflare Pages builds automatically.
+Push to `main` — Vercel builds and deploys automatically.
 
 ---
 
 ## 3. Custom domain
 
-- **Cloudflare Pages**: Settings → Custom domains → `esportsduniya.in`
-- **Render**: Optional custom domain for API (e.g. `api.esportsduniya.in`) — update `VITE_API_URL` / `_redirects` if used
+- **Vercel**: Project → Settings → Domains → `esportsduniya.in`
+- **Render**: Optional custom domain for API (e.g. `api.esportsduniya.in`) — update `vercel.json`'s rewrite destinations if used
 
 ---
 
