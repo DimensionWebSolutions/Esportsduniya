@@ -1,0 +1,13 @@
+name: Launch check
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  launch-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DimensionWebSolutions/launch-check-action@v1
