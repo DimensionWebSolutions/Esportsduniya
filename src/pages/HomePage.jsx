@@ -378,6 +378,29 @@ export default function HomePage() {
           </div>
         )}
       </Section>
+
+      <section className="mt-10 rounded-xl border border-border bg-surface-1 p-4 sm:p-6" aria-labelledby="about-esd">
+        <h2 id="about-esd" className="font-display text-lg font-semibold text-foreground">
+          Your home for live sports scores and analysis
+        </h2>
+        <div className="mt-3 space-y-3 text-sm leading-relaxed text-muted">
+          <p>
+            Esportsduniya brings live scores for cricket, football, NBA, tennis and Formula 1 together with league
+            standings, match previews and plain-English analysis. Open any match to see its score, momentum, key
+            moments and what our AI narrative thinks is shaping the result.
+          </p>
+          <p>
+            Cricket fans can follow IPL and international fixtures on the <Link to="/cricket/ipl-2026" className="text-accent hover:underline">IPL 2026 hub</Link>;
+            football fans can track the <Link to="/football/premier-league" className="text-accent hover:underline">Premier League</Link> and
+            check the <Link to="/standings" className="text-accent hover:underline">latest tables</Link>. Want more context?
+            Read our <Link to="/blog" className="text-accent hover:underline">sports news</Link> or relive classics in the <Link to="/timemachine" className="text-accent hover:underline">Time Machine</Link>.
+          </p>
+          <p>
+            Predictions and fantasy games use virtual points only and are for fun — never betting. Learn how we source data and use AI in
+            our <Link to="/editorial-policy" className="text-accent hover:underline">Editorial Policy</Link>, or <Link to="/about" className="text-accent hover:underline">read about us</Link>.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

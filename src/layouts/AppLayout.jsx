@@ -17,6 +17,9 @@ import {
   Menu,
   Zap,
   Sparkles,
+  X,
+  MoreHorizontal,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -47,8 +50,55 @@ const MOBILE_NAV = [
   { to: '/fantasy', label: 'Fantasy', icon: Shield },
   { to: '/quiz', label: 'Quiz', icon: Sparkles },
   { to: '/arena', label: 'Arena', icon: Trophy },
-  { to: '/profile', label: 'Account', icon: User },
+  { to: '/standings', label: 'Tables', icon: BarChart3 },
 ];
+
+const MORE_LINKS = [
+  ...NAV_ITEMS.filter(i => !MOBILE_NAV.some(m => m.to === i.to)),
+  { to: '/profile', label: 'Account', icon: User },
+  { to: '/about', label: 'About', icon: Info },
+];
+
+function MoreSheet({ open, onClose, pathname }) {
+  useEffect(() => { onClose(); }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="More navigation">
+      <button type="button" className="absolute inset-0 bg-black/60" aria-label="Close menu" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 max-h-[80vh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface-1 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="font-display text-base font-semibold text-foreground">Explore</p>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:bg-surface-2">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {MORE_LINKS.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  'flex min-h-[72px] flex-col items-center justify-center gap-1.5 rounded-xl border border-border px-2 py-3 text-xs font-medium',
+                  isActive ? 'border-accent/40 bg-accent/15 text-accent' : 'bg-surface-2 text-foreground'
+                )
+              }
+            >
+              <Icon className="h-5 w-5" strokeWidth={1.75} />
+              {label}
+            </NavLink>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SideNavLink({ to, label, icon: Icon, end }) {
   return (
@@ -71,7 +121,7 @@ function SideNavLink({ to, label, icon: Icon, end }) {
 
 function TopBar({ onSearch, onLogin, user, onLogout }) {
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-border bg-surface-0/95 px-4 backdrop-blur-md lg:px-6">
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-border bg-surface-0/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-md sm:gap-4 sm:px-4 lg:px-6">
       <Link to="/" className="flex items-center gap-2 font-display text-lg font-bold tracking-tight text-foreground">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/15 text-accent">
           <Zap className="h-4 w-4" fill="currentColor" />
@@ -104,8 +154,8 @@ function TopBar({ onSearch, onLogin, user, onLogout }) {
           <>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/profile">
-                <span className="mr-1.5">{user.avatar || '👤'}</span>
-                {user.username}
+                <span className="sm:mr-1.5">{user.avatar || '👤'}</span>
+                <span className="hidden max-w-[10ch] truncate sm:inline">{user.username}</span>
               </Link>
             </Button>
             <Button variant="ghost" size="icon" onClick={onLogout} aria-label="Log out">
@@ -127,6 +177,7 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const [searchOpen, setSearchOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     initLiveScoreManager();
@@ -174,7 +225,7 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-[72px] xl:pl-36">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col overflow-x-clip lg:pl-[72px] xl:pl-36">
         <TopBar
           onSearch={() => setSearchOpen(true)}
           onLogin={openLogin}
@@ -184,13 +235,13 @@ export default function AppLayout() {
 
         <LiveScoreTicker />
 
-        <main className="flex-1 px-4 py-6 pb-24 lg:px-8 lg:pb-8">
+        <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 sm:py-6 lg:px-8 lg:pb-8">
           <Outlet context={{ openLogin }} />
         </main>
 
         <SiteFooter />
 
-        <nav className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-border bg-surface-1/95 backdrop-blur-md lg:hidden">
+        <nav aria-label="Primary" className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-border bg-surface-1/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
           {MOBILE_NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -198,7 +249,7 @@ export default function AppLayout() {
               end={end}
               className={({ isActive }) =>
                 cn(
-                  'flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium',
+                  'flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium',
                   isActive ? 'text-accent' : 'text-muted'
                 )
               }
@@ -207,7 +258,17 @@ export default function AppLayout() {
               {label}
             </NavLink>
           ))}
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            aria-haspopup="dialog"
+            className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-muted"
+          >
+            <MoreHorizontal className="h-5 w-5" strokeWidth={1.75} />
+            More
+          </button>
         </nav>
+        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} pathname={location.pathname} />
       </div>
 
       <CommandSearch open={searchOpen} onOpenChange={setSearchOpen} />

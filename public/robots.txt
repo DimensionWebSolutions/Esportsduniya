@@ -1,4 +1,7 @@
 # Esportsduniya — robots.txt
+User-agent: Mediapartners-Google
+Allow: /
+
 User-agent: *
 Allow: /
 Disallow: /admin

@@ -27,6 +27,8 @@ const PrivacyPolicy = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ d
 const TermsOfService = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.TermsOfService })));
 const AboutPage = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.AboutPage })));
 const ContactPage = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.ContactPage })));
+const EditorialPolicy = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.EditorialPolicy })));
+const DisclaimerPage = lazy(() => import('@/pages/LegalPages.jsx').then(m => ({ default: m.DisclaimerPage })));
 
 const ForgotPasswordPage = lazy(() => import('@/pages/AuthPages.jsx').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('@/pages/AuthPages.jsx').then(m => ({ default: m.ResetPasswordPage })));
@@ -89,6 +91,8 @@ export default function App() {
           <Route path="terms" element={<TermsOfService />} />
           <Route path="about" element={<AboutPage />} />
           <Route path="contact" element={<ContactPage />} />
+          <Route path="editorial-policy" element={<EditorialPolicy />} />
+          <Route path="disclaimer" element={<DisclaimerPage />} />
           <Route path="forgot-password" element={<ForgotPasswordPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="verify-email" element={<VerifyEmailPage />} />
