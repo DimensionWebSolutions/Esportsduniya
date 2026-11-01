@@ -41,6 +41,7 @@ import { LIVE_SPORT_IDS, THESPORTSDB_SPORT_IDS, SPORT_BY_ID } from './lib/sports
 import { fetchAllSportsNews, newsItemsToHighlights } from './lib/news-feed.js';
 import { fetchStandingsForLeague, STANDINGS_SUPPORTED } from './lib/standings-feed.js';
 import { SITE_URL, STATIC_SITEMAP_PATHS, TOPICAL_HUBS } from './lib/seo-config.js';
+import { SEED_ARTICLES } from './lib/seed-articles.js';
 import {
   renderSportHubPage,
   renderMatchPage,
@@ -4636,7 +4637,21 @@ cron.schedule('*/15 * * * *', async () => {
 });
 
 // Refresh news on startup (after a short delay so the server is ready)
+// Seed hand-written evergreen articles (idempotent: existing slugs are skipped)
+async function seedEvergreenArticles() {
+  let added = 0;
+  for (const a of SEED_ARTICLES) {
+    try {
+      if (await dbSaveArticle(a)) added += 1;
+    } catch (err) {
+      console.error('   ❌ Seed article failed:', a.slug, err.message);
+    }
+  }
+  if (added) console.log(`   📝 Seeded ${added} evergreen article(s)`);
+}
+
 setTimeout(() => {
+  seedEvergreenArticles();
   fetchAndCacheSportsNews().catch(err => console.error('   ❌ News startup fetch failed:', err.message));
   if (ENABLE_AI_BLOG) {
     generateDailyArticles().catch(err => console.error('   ❌ Blog startup generation failed:', err.message));
