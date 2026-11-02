@@ -17,7 +17,7 @@ function LegalSection({ title, children }) {
 function Meta({ title, description, path }) {
   return (
     <Helmet>
-      <title>{title} | Esportsduniya</title>
+      <title>{`${title} | Esportsduniya`}</title>
       <meta name="description" content={description} />
       <link rel="canonical" href={`${SITE}${path}`} />
     </Helmet>

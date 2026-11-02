@@ -9,6 +9,7 @@
     { "source": "/match/:path*", "destination": "https://esportsduniya.onrender.com/match/:path*" },
     { "source": "/cricket/:path*", "destination": "https://esportsduniya.onrender.com/cricket/:path*" },
     { "source": "/football/:path*", "destination": "https://esportsduniya.onrender.com/football/:path*" },
+    { "source": "/rss.xml", "destination": "https://esportsduniya.onrender.com/rss.xml" },
     { "source": "/sitemap.xml", "destination": "https://esportsduniya.onrender.com/sitemap.xml" },
     { "source": "/sitemap-app.xml", "destination": "https://esportsduniya.onrender.com/sitemap-app.xml" },
     { "source": "/sitemap-matches.xml", "destination": "https://esportsduniya.onrender.com/sitemap-matches.xml" },
