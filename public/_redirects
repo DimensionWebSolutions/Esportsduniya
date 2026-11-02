@@ -5,6 +5,7 @@
 /match/* https://esportsduniya.onrender.com/match/:splat 200
 /cricket/* https://esportsduniya.onrender.com/cricket/:splat 200
 /football/* https://esportsduniya.onrender.com/football/:splat 200
+/rss.xml https://esportsduniya.onrender.com/rss.xml 200
 /sitemap.xml https://esportsduniya.onrender.com/sitemap.xml 200
 /sitemap-app.xml https://esportsduniya.onrender.com/sitemap-app.xml 200
 /sitemap-matches.xml https://esportsduniya.onrender.com/sitemap-matches.xml 200

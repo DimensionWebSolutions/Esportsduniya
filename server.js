@@ -4297,6 +4297,10 @@ const ARTICLE_HTML_OPTIONS = {
         // No valid href — unwrap to span so inner text is kept without a broken/dangerous link
         return { tagName: 'span', attribs: {} };
       }
+      if (/^https?:\/\/(www\.)?esportsduniya\.in(\/|$)/i.test(href)) {
+        // Internal link: same tab, passes link equity
+        return { tagName: 'a', attribs: { href } };
+      }
       return {
         tagName: 'a',
         attribs: {
@@ -4710,6 +4714,8 @@ img{max-width:100%;height:auto}
 .blog-card-meta{font-size:0.78rem;color:#555;display:flex;gap:12px}
 .blog-footer{border-top:1px solid rgba(255,255,255,0.07);padding:32px 24px;text-align:center;color:#555;font-size:0.85rem}
 .blog-footer a{color:#1ee6a7}
+.blog-breadcrumb{font-size:.82rem;color:#888;margin-bottom:14px}.blog-breadcrumb a{color:#9aa}.blog-breadcrumb span{margin:0 6px;opacity:.5}
+.blog-related{margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid rgba(255,255,255,0.07)}.blog-related h2{font-size:1.2rem;color:#fff;margin-bottom:14px}.blog-related .blog-grid{gap:12px}.blog-related .blog-card{padding:16px}
 .blog-footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 18px;margin-bottom:14px}
 .blog-footer-links a{padding:6px 0;font-size:.9rem}
 .blog-header-nav{flex-wrap:wrap;justify-content:flex-end}
@@ -4742,7 +4748,7 @@ app.get('/api/blog/:slug', async (req, res) => {
 // ── Blog route: SSR HTML listing (Google-indexable) ──
 app.get('/blog', async (req, res) => {
   try {
-    const list = await dbGetArticles(20);
+    const list = await dbGetArticles(50);
     const cardsHtml = list.length
       ? list.map(a => {
           const pubDate = new Date(a.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -4769,6 +4775,7 @@ app.get('/blog', async (req, res) => {
 <meta name="description" content="Stay updated with the latest sports news, match previews, player analysis, and tournament updates for cricket, football, NBA, tennis, and F1 on Esportsduniya." />
 <meta name="robots" content="index, follow" />
 <link rel="canonical" href="https://esportsduniya.in/blog" />
+<link rel="alternate" type="application/rss+xml" title="Esportsduniya Sports Guides" href="https://esportsduniya.in/rss.xml" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Sports Blog — Esportsduniya" />
 <meta property="og:description" content="Latest sports news, match previews and analysis for cricket, football, NBA, tennis and F1." />
@@ -4841,7 +4848,8 @@ app.get('/blog/:slug', async (req, res) => {
       description: article.metaDescription,
       url: canonicalUrl,
       datePublished: pubIso,
-      dateModified: pubIso,
+      dateModified: new Date(article.updatedAt || article.publishedAt).toISOString(),
+      mainEntityOfPage: { '@type': 'WebPage', '@id': canonicalUrl },
       author: { '@type': 'Organization', name: siteName, url: 'https://esportsduniya.in' },
       publisher: {
         '@type': 'Organization',
@@ -4856,12 +4864,35 @@ app.get('/blog/:slug', async (req, res) => {
       inLanguage: 'en-IN',
     });
 
+    const catLabel = String(article.category || 'general');
+    const breadcrumbLd = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://esportsduniya.in/' },
+        { '@type': 'ListItem', position: 2, name: 'Blog', item: 'https://esportsduniya.in/blog' },
+        { '@type': 'ListItem', position: 3, name: article.title, item: canonicalUrl },
+      ],
+    });
+    let relatedHtml = '';
+    try {
+      const pool = (await dbGetArticles(50)).filter(a => !a.isExternal && a.slug !== slug);
+      const same = pool.filter(a => a.category === article.category);
+      const rest = pool.filter(a => a.category !== article.category);
+      const related = [...same, ...rest].slice(0, 3);
+      if (related.length) {
+        relatedHtml = `<aside class="blog-related" aria-label="Related articles"><h2>Keep reading</h2><div class="blog-grid">${related.map(r => `<a class="blog-card" href="/blog/${escapeHtml(r.slug)}"><div class="blog-card-cat">${escapeHtml(r.category)}</div><div class="blog-card-title">${escapeHtml(r.title)}</div></a>`).join('')}</div></aside>`;
+      }
+    } catch { /* related links are optional */ }
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>${escapeHtml(article.title)} | Esportsduniya</title>
+<link rel="alternate" type="application/rss+xml" title="Esportsduniya Sports Guides" href="https://esportsduniya.in/rss.xml" />
+<script type="application/ld+json">${breadcrumbLd}</script>
 <meta name="description" content="${escapeHtml(article.metaDescription)}" />
 <meta name="keywords" content="${escapeHtml((article.keywords || []).join(', '))}" />
 <meta name="author" content="Esportsduniya" />
@@ -4901,6 +4932,7 @@ app.get('/blog/:slug', async (req, res) => {
 <main>
   <div class="blog-hero">
     <div class="blog-hero-inner">
+      <nav class="blog-breadcrumb" aria-label="Breadcrumb"><a href="https://esportsduniya.in/">Home</a><span>›</span><a href="/blog">Blog</a><span>›</span>${escapeHtml(catLabel)}</nav>
       <div class="blog-category-badge">${escapeHtml(article.category)}</div>
       <h1 class="blog-title">${escapeHtml(article.title)}</h1>
       <div class="blog-meta">
@@ -4925,6 +4957,7 @@ app.get('/blog/:slug', async (req, res) => {
       </div>
       ${keywordsHtml ? `<div class="blog-keywords">${keywordsHtml}</div>` : ''}
     </article>
+    ${relatedHtml}
     <nav style="margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid rgba(255,255,255,0.07)">
       <a href="/blog" style="color:#1ee6a7;font-size:0.9rem">← More Sports Articles</a>
     </nav>
@@ -4943,6 +4976,34 @@ app.get('/blog/:slug', async (req, res) => {
   } catch (err) {
     console.error('Blog article error:', err);
     res.status(500).send('Internal server error');
+  }
+});
+
+// ── RSS feed (discovery + syndication) ──
+app.get('/rss.xml', async (req, res) => {
+  try {
+    const list = (await dbGetArticles(50)).filter(a => !a.isExternal);
+    const items = list.map(a => `    <item>
+      <title>${escapeHtml(a.title)}</title>
+      <link>https://esportsduniya.in/blog/${escapeHtml(a.slug)}</link>
+      <guid isPermaLink="true">https://esportsduniya.in/blog/${escapeHtml(a.slug)}</guid>
+      <pubDate>${new Date(a.publishedAt).toUTCString()}</pubDate>
+      <category>${escapeHtml(a.category)}</category>
+      <description>${escapeHtml(a.metaDescription)}</description>
+    </item>`).join('\n');
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+    <title>Esportsduniya Sports Guides</title>
+    <link>https://esportsduniya.in/blog</link>
+    <description>Sports explainers and guides for cricket, football, NBA, tennis and F1.</description>
+    <language>en-in</language>
+${items}
+</channel></rss>`;
+    res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=1800');
+    res.send(xml);
+  } catch (err) {
+    res.status(500).send('Error');
   }
 });
 

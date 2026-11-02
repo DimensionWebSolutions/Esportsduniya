@@ -6,6 +6,7 @@ import { trackPageView } from '@/services/analytics.js';
 import { registerServiceWorker, startReminderChecker } from '@/components/NotificationHelper.js';
 import { safeReadStorageJson } from '@/lib/utils';
 import { Skeleton } from '@/ui/section';
+import RouteMeta, { NotFoundPage } from '@/components/RouteMeta.jsx';
 
 const MatchCommandCenter = lazy(() => import('@/pages/MatchCommandCenter.jsx'));
 const PredictionArena = lazy(() => import('@/pages/PredictionArena.jsx'));
@@ -70,6 +71,7 @@ export default function App() {
 
   return (
     <Suspense fallback={<PageLoader />}>
+      <RouteMeta />
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<HomePage />} />
@@ -100,7 +102,7 @@ export default function App() {
           <Route path="cricket/ipl-2026" element={<TopicalHubPage hubKey="ipl-2026" />} />
           <Route path="football/premier-league" element={<TopicalHubPage hubKey="premier-league" />} />
           <Route path="dashboard" element={<Navigate to="/" replace />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
     </Suspense>
